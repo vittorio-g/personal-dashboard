@@ -1,0 +1,25 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "personal-dashboard",
+  "main": "src/index.js",
+  "compatibility_date": "2026-07-08",
+  "observability": { "enabled": true },
+
+  // The front-end HTML is imported as a text module (Wrangler's default
+  // Text rule already covers **/*.html).
+
+  // KV cache for the snapshot, todos, WhatsApp recap and inbox.
+  // Create one with:  wrangler kv namespace create DASH_KV
+  "kv_namespaces": [
+    { "binding": "DASH_KV", "id": "PUT_YOUR_KV_NAMESPACE_ID_HERE" }
+  ],
+
+  // Cron in UTC. 06:00/11:00 UTC = 08:00/13:00 Europe/Rome in summer (CEST),
+  // 07:00/12:00 in winter (CET); the extra 05:00/10:00 keeps it close year-round.
+  "triggers": {
+    "crons": ["0 5,6,10,11 * * *"]
+  }
+
+  // Secrets — set with `wrangler secret put NAME`, never committed.
+  // See .dev.vars.example for the full list.
+}

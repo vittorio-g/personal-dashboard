@@ -1,0 +1,13 @@
+node_modules/
+.wrangler/
+.dev.vars
+secrets*.json
+refresh_token.txt
+*.log
+# runtime payloads written by the scheduled task — may contain personal data
+.wa-payload.json
+.suggested-payload.json
+.api-data.json
+.dash-data.json
+# the live contacts file is personal; only contacts.example.json is committed
+skills/whatsapp-recap/contacts.json

@@ -1,0 +1,29 @@
+# Copy to `.dev.vars` for local `wrangler dev`, and set each one in production with
+#   wrangler secret put NAME
+# NEVER commit the real file.
+
+# --- Dashboard access -------------------------------------------------------
+# Any long random string. The dashboard is opened once with ?t=<token>, then a
+# cookie keeps you logged in for a year.
+ACCESS_TOKEN=choose-a-long-random-string
+
+# --- Google OAuth (Gmail + Calendar) ---------------------------------------
+GOOGLE_CLIENT_ID=xxxxxxxx.apps.googleusercontent.com
+GOOGLE_CLIENT_SECRET=GOCSPX-xxxxxxxx
+# One refresh token per account id listed in DEFAULT_ACCOUNTS (src/index.js)
+# or in the ACCOUNTS var. Generate with scripts/get_google_token.py
+GOOGLE_RT_PERSONALE=1//refresh-token
+GOOGLE_RT_LAVORO=1//refresh-token
+GOOGLE_RT_STUDIO=1//refresh-token
+GOOGLE_RT_PROGETTI=1//refresh-token
+
+# --- Optional: override the account list (JSON) -----------------------------
+# ACCOUNTS=[{"id":"personale","name":"Personale"},{"id":"lavoro","name":"Work"}]
+
+# --- WhatsApp Cloud API (optional: inbound commands) ------------------------
+WHATSAPP_APP_ID=1234567890
+WHATSAPP_APP_SECRET=your-meta-app-secret          # verifies webhook signatures
+WHATSAPP_TOKEN=EAA...                             # PERMANENT system-user token
+WHATSAPP_PHONE_ID=1234567890
+WHATSAPP_WABA_ID=1234567890
+WA_VERIFY_TOKEN=another-long-random-string        # you invent it; paste it in Meta too

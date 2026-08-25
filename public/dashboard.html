@@ -1,0 +1,859 @@
+<!DOCTYPE html>
+<html lang="it" data-theme="auto">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<title>Dashboard personale</title>
+<style>
+  :root {
+    color-scheme: light;
+    --page:        #f9f9f7;
+    --surface-1:   #fcfcfb;
+    --surface-2:   #f2f2ee;
+    --text-primary:#0b0b0b;
+    --text-secondary:#52514e;
+    --muted:       #898781;
+    --grid:        #e1e0d9;
+    --border:      rgba(11,11,11,0.10);
+    --border-strong: rgba(11,11,11,0.16);
+    --good:    #0ca30c;
+    --warning: #fab219;
+    --serious: #ec835a;
+    --critical:#d03b3b;
+    --acc-personale: #2a78d6;
+    --acc-lavoro: #008300;
+    --acc-studio: #4a3aa7;
+    --acc-progetti:     #eb6834;
+    --shadow: 0 1px 2px rgba(11,11,11,.04), 0 4px 16px rgba(11,11,11,.05);
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --page:        #0d0d0d;
+    --surface-1:   #1a1a19;
+    --surface-2:   #232322;
+    --text-primary:#ffffff;
+    --text-secondary:#c3c2b7;
+    --muted:       #898781;
+    --grid:        #2c2c2a;
+    --border:      rgba(255,255,255,0.10);
+    --border-strong: rgba(255,255,255,0.16);
+    --acc-personale: #3987e5;
+    --acc-lavoro: #21a021;
+    --acc-studio: #9085e9;
+    --acc-progetti:     #d95926;
+    --shadow: 0 1px 2px rgba(0,0,0,.3), 0 6px 20px rgba(0,0,0,.35);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root[data-theme="auto"] {
+      color-scheme: dark;
+      --page:#0d0d0d; --surface-1:#1a1a19; --surface-2:#232322;
+      --text-primary:#ffffff; --text-secondary:#c3c2b7; --muted:#898781;
+      --grid:#2c2c2a; --border:rgba(255,255,255,0.10); --border-strong:rgba(255,255,255,0.16);
+      --acc-personale:#3987e5; --acc-lavoro:#21a021; --acc-studio:#9085e9; --acc-progetti:#d95926;
+      --shadow:0 1px 2px rgba(0,0,0,.3), 0 6px 20px rgba(0,0,0,.35);
+    }
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--page);
+    color: var(--text-primary);
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    line-height: 1.45;
+    -webkit-font-smoothing: antialiased;
+    padding: 22px clamp(14px, 3vw, 34px) 40px;
+  }
+  .wrap { max-width: 1180px; margin: 0 auto; }
+
+  /* ---------- Header ---------- */
+  header.top {
+    display: flex; flex-wrap: wrap; align-items: flex-end;
+    justify-content: space-between; gap: 16px 24px; margin-bottom: 22px;
+  }
+  .title h1 { font-size: clamp(1.35rem, 2.6vw, 1.8rem); margin: 0 0 4px; letter-spacing: -.02em; }
+  .title .ids { font-size: .82rem; color: var(--text-secondary); display: flex; flex-wrap: wrap; gap: 6px 10px; }
+  .title .ids span { display: inline-flex; align-items: center; gap: 6px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex: none; }
+
+  .headmeta { display: flex; align-items: center; gap: 14px; }
+  .clockbox { text-align: right; }
+  .clockbox .time { font-size: 1.35rem; font-weight: 600; font-variant-numeric: tabular-nums; letter-spacing: -.01em; }
+  .clockbox .date { font-size: .78rem; color: var(--text-secondary); text-transform: capitalize; }
+  .iconbtn {
+    appearance: none; border: 1px solid var(--border-strong); background: var(--surface-1);
+    color: var(--text-secondary); border-radius: 999px; padding: 8px; cursor: pointer;
+    display: inline-flex; align-items: center; justify-content: center; width: 38px; height: 38px;
+  }
+  .iconbtn:hover { color: var(--text-primary); border-color: var(--muted); }
+  .iconbtn:focus-visible { outline: 2px solid var(--acc-personale); outline-offset: 2px; }
+  .iconbtn svg { width: 18px; height: 18px; display: block; }
+  .iconbtn[disabled] { opacity: .55; cursor: default; }
+  .iconbtn.spinning svg { animation: spin .8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) {
+    .iconbtn.spinning svg { animation: none; }
+    .pulse::after { animation: none; }
+  }
+
+  /* ---------- Sync ribbon ---------- */
+  .sync {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px;
+    background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px;
+    padding: 10px 14px; margin-bottom: 20px; font-size: .82rem; color: var(--text-secondary);
+    box-shadow: var(--shadow);
+  }
+  .sync .live { display: inline-flex; align-items: center; gap: 7px; font-weight: 600; color: var(--text-primary); }
+  .sync .live.stale { color: var(--serious); }
+  .pulse { width: 9px; height: 9px; border-radius: 50%; background: var(--good); position: relative; }
+  .pulse.stale { background: var(--serious); }
+  .pulse::after { content:""; position:absolute; inset:-4px; border-radius:50%; border:2px solid var(--good); opacity:.5; animation: pulse 2.4s ease-out infinite; }
+  .pulse.stale::after { border-color: var(--serious); }
+  @keyframes pulse { 0%{transform:scale(.6);opacity:.6} 100%{transform:scale(1.9);opacity:0} }
+  .sync .sep { color: var(--muted); }
+  .sync .refreshbtn {
+    margin-left: auto; appearance: none; cursor: pointer;
+    border: 1px solid var(--border-strong); background: var(--surface-2); color: var(--text-primary);
+    border-radius: 999px; padding: 7px 14px 7px 11px; font-size: .8rem; font-weight: 600;
+    display: inline-flex; align-items: center; gap: 7px;
+  }
+  .sync .refreshbtn:hover { border-color: var(--muted); }
+  .sync .refreshbtn:focus-visible { outline: 2px solid var(--acc-personale); outline-offset: 2px; }
+  .sync .refreshbtn[disabled] { opacity: .6; cursor: default; }
+  .sync .refreshbtn svg { width: 15px; height: 15px; }
+  .sync .refreshbtn.spinning svg { animation: spin .8s linear infinite; }
+
+  .tag {
+    font-size: .62rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
+    padding: 3px 7px; border-radius: 6px; display: inline-flex; align-items:center; gap:5px; white-space: nowrap;
+  }
+  .tag.real { background: color-mix(in srgb, var(--good) 15%, transparent); color: var(--good); }
+  .tag.sample { background: color-mix(in srgb, var(--serious) 20%, transparent); color: var(--serious); }
+  :root[data-theme="dark"] .tag.real { color: #3ec13e; }
+
+  /* ---------- Panels ---------- */
+  .panels { display: grid; grid-template-columns: 1.15fr .85fr; gap: 16px; }
+  @media (max-width: 900px){ .panels { grid-template-columns: 1fr; } }
+  .panel { background: var(--surface-1); border: 1px solid var(--border); border-radius: 16px; box-shadow: var(--shadow); overflow: hidden; }
+  .panel.sample { border-style: dashed; border-color: color-mix(in srgb, var(--serious) 55%, var(--border)); }
+  .phead { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 15px 18px 13px; border-bottom: 1px solid var(--border); }
+  .phead h2 { font-size: 1.02rem; margin: 0; display: flex; align-items: center; gap: 9px; letter-spacing: -.01em; }
+  .phead h2 svg { width: 18px; height: 18px; opacity: .75; }
+  .pbody { padding: 6px 8px 10px; }
+  .empty { padding: 20px 16px; text-align: center; color: var(--muted); font-size: .84rem; }
+
+  /* Banner (source offline / sample) */
+  .banner {
+    margin: 12px 12px 4px; padding: 10px 12px; border-radius: 10px; font-size: .78rem;
+    background: color-mix(in srgb, var(--serious) 12%, var(--surface-1));
+    border: 1px solid color-mix(in srgb, var(--serious) 40%, transparent);
+    color: var(--text-secondary); display: flex; gap: 9px; align-items: flex-start;
+  }
+  .banner svg { width: 16px; height: 16px; flex: none; margin-top: 1px; color: var(--serious); }
+  .banner b { color: var(--text-primary); }
+  .allday { margin: 12px 12px 2px; padding: 9px 12px; border-radius: 10px; display:flex; align-items:center; gap:10px; font-size:.82rem; background: color-mix(in srgb, var(--acc-personale) 10%, var(--surface-1)); border:1px solid color-mix(in srgb, var(--acc-personale) 30%, transparent); }
+  .allday .ad-dot { width:9px; height:9px; border-radius:50%; background: var(--acc-personale); flex:none; }
+  .allday b { color: var(--text-primary); }
+  .allday .ad-range { color: var(--muted); font-size:.75rem; margin-left:4px; }
+
+  /* Mail rows */
+  ul.rows { list-style: none; margin: 0; padding: 4px; }
+  li.row { display: flex; gap: 12px; padding: 11px 12px; border-radius: 11px; align-items: flex-start; }
+  li.row + li.row { border-top: 1px solid var(--border); }
+  li.row:hover { background: var(--surface-2); }
+  .stat { width: 30px; height: 30px; border-radius: 9px; flex: none; display: flex; align-items: center; justify-content: center; }
+  .stat svg { width: 16px; height: 16px; }
+  .stat.critical { background: color-mix(in srgb, var(--critical) 16%, transparent); color: var(--critical); }
+  .stat.warning  { background: color-mix(in srgb, var(--warning) 22%, transparent); color: #b07d00; }
+  :root[data-theme="dark"] .stat.warning { color: var(--warning); }
+  .stat.info     { background: color-mix(in srgb, var(--acc-personale) 16%, transparent); color: var(--acc-personale); }
+  .rowmain { min-width: 0; flex: 1; }
+  .rowmain .subj { font-size: .9rem; font-weight: 560; margin: 0 0 3px; }
+  .rowmain .meta { font-size: .76rem; color: var(--muted); display: flex; flex-wrap: wrap; gap: 5px 9px; align-items: center; }
+  .chip { font-size: .68rem; font-weight: 600; padding: 2px 8px; border-radius: 999px; display: inline-flex; align-items: center; gap: 5px; border: 1px solid var(--border); color: var(--text-secondary); }
+  .chip .dot { width: 7px; height: 7px; }
+  .badge { font-size: .68rem; font-weight: 700; padding: 2px 8px; border-radius: 999px; white-space: nowrap; }
+  .badge.critical { background: color-mix(in srgb, var(--critical) 15%, transparent); color: var(--critical); }
+  .badge.warning  { background: color-mix(in srgb, var(--warning) 22%, transparent); color: #9a6c00; }
+  :root[data-theme="dark"] .badge.warning { color: var(--warning); }
+  .badge.info     { background: var(--surface-2); color: var(--text-secondary); }
+  .rowtime { font-size: .72rem; color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .rowend { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; flex: none; }
+  .rowact { display: flex; gap: 4px; opacity: 0; transition: opacity .15s; }
+  li.row:hover .rowact, .rowact:focus-within { opacity: 1; }
+  @media (hover: none) { .rowact { opacity: 1; } }
+  .actbtn { appearance: none; cursor: pointer; border: 1px solid var(--border); background: var(--surface-2); color: var(--text-secondary); border-radius: 8px; width: 26px; height: 26px; display: inline-flex; align-items: center; justify-content: center; padding: 0; }
+  .actbtn:hover { color: var(--text-primary); border-color: var(--muted); }
+  .actbtn:focus-visible { outline: 2px solid var(--acc-personale); outline-offset: 1px; }
+  .actbtn svg { width: 14px; height: 14px; }
+  .actbtn[disabled] { opacity: .5; cursor: default; }
+
+  /* Agenda rows */
+  ul.agenda { list-style: none; margin: 0; padding: 4px 6px 6px; }
+  li.ev { display: grid; grid-template-columns: 58px 1fr; gap: 12px; padding: 10px 10px; align-items: start; }
+  li.ev + li.ev { border-top: 1px solid var(--border); }
+  li.ev:hover { background: var(--surface-2); border-radius: 10px; }
+  .ev .t { font-size: .8rem; font-weight: 650; font-variant-numeric: tabular-nums; }
+  .ev .t small { display:block; font-weight: 500; color: var(--muted); }
+  .ev .body { border-left: 3px solid var(--rail, var(--muted)); padding-left: 11px; }
+  .ev .body .name { font-size: .88rem; font-weight: 560; }
+  .ev .body .where { font-size: .74rem; color: var(--muted); }
+  .ev.now .body .name::after { content: "ora"; margin-left: 8px; font-size: .6rem; font-weight: 700; letter-spacing:.05em; text-transform: uppercase; color: var(--good); border:1px solid color-mix(in srgb, var(--good) 45%, transparent); padding: 1px 6px; border-radius: 999px; vertical-align: middle; }
+
+  /* Footer / legend */
+  .foot { margin-top: 22px; display: flex; flex-wrap: wrap; gap: 10px 22px; align-items: center; justify-content: space-between; font-size: .76rem; color: var(--muted); }
+  .legend { display: flex; flex-wrap: wrap; gap: 8px 16px; }
+  .legend span { display: inline-flex; align-items: center; gap: 7px; }
+  .src { display:flex; flex-wrap:wrap; gap: 6px 8px; }
+  .src .chip { background: var(--surface-1); }
+  .src .chip.off { color: var(--critical); border-color: color-mix(in srgb, var(--critical) 40%, var(--border)); }
+  .toast {
+    position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%) translateY(20px);
+    background: var(--text-primary); color: var(--page); padding: 10px 16px; border-radius: 10px;
+    font-size: .82rem; font-weight: 600; box-shadow: var(--shadow); opacity: 0; pointer-events: none;
+    transition: opacity .25s, transform .25s; z-index: 50; max-width: 90vw;
+  }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+  .toast.err { background: var(--critical); color: #fff; }
+
+  /* ---------- WhatsApp panel ---------- */
+  .wa { margin-top: 16px; }
+  .wa .phead h2 svg { color: #25d366; opacity: 1; }
+  .wa-body { padding: 10px 14px 14px; display: grid; gap: 14px; }
+  .wa-sec .wa-h { font-size: .78rem; font-weight: 700; color: var(--text-secondary); margin: 2px 0 8px; letter-spacing: .01em; }
+  .wa-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+  .wa-item { display: flex; gap: 10px; align-items: flex-start; background: var(--surface-2); border: 1px solid var(--border); border-radius: 11px; padding: 9px 11px; }
+  .wa-item.wa-left { background: transparent; border-style: dashed; }
+  .wa-tag { font-size: 1rem; line-height: 1.25; flex: none; }
+  .wa-item b { font-size: .9rem; }
+  .wa-cat { font-size: .58rem; text-transform: uppercase; letter-spacing: .05em; padding: 1px 6px; border-radius: 6px; margin-left: 5px; vertical-align: middle;
+            background: color-mix(in srgb, var(--acc-progetti) 18%, transparent); color: var(--acc-progetti); }
+  .wa-age { font-size: .66rem; color: var(--critical); font-weight: 700; margin-left: 5px; }
+  .wa-text { font-size: .8rem; color: var(--text-secondary); margin-top: 2px; }
+  .wa-tally { display: flex; gap: 8px; flex-wrap: wrap; }
+  .wa-empty { font-size: .82rem; color: var(--muted); padding: 4px 2px; }
+  .wa-cb { flex: none; width: 18px; height: 18px; margin-top: 1px; border: 1.6px solid var(--muted); border-radius: 5px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; color: transparent; }
+  .wa-item.done .wa-cb { background: var(--good); border-color: var(--good); color: #fff; }
+  .wa-cb svg { width: 12px; height: 12px; }
+  .wa-item.done { opacity: .5; }
+  .wa-item.done b, .wa-item.done .wa-text { text-decoration: line-through; }
+
+  /* ---------- To-do ---------- */
+  .todo { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 22px; }
+  @media (max-width: 780px){ .todo { grid-template-columns: 1fr; } }
+  .todo-col { background: var(--surface-1); border: 1px solid var(--border); border-radius: 16px; box-shadow: var(--shadow); padding: 14px 16px 16px; }
+  .todo-col.sug { border-style: dashed; }
+  .todo-h { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; font-weight: 650; font-size: .96rem; margin-bottom: 11px; }
+  .todo-sub { font-size: .6rem; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); font-weight: 700; }
+  .todo-add { display: flex; gap: 8px; margin-bottom: 10px; }
+  .todo-add input { flex: 1; background: var(--surface-2); border: 1px solid var(--border); border-radius: 9px; padding: 8px 11px; color: var(--text-primary); font-size: .86rem; }
+  .todo-add input:focus { outline: 2px solid var(--acc-personale); outline-offset: 0; border-color: transparent; }
+  .todo-add button { flex: none; width: 34px; border: 1px solid var(--border-strong); background: var(--surface-2); color: var(--text-secondary); border-radius: 9px; font-size: 1.15rem; line-height: 1; cursor: pointer; }
+  .todo-add button:hover { color: var(--text-primary); border-color: var(--muted); }
+  .todo-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+  .todo-list .empty { color: var(--muted); font-size: .82rem; padding: 6px 2px; }
+  .todo-it { display: flex; gap: 9px; align-items: flex-start; padding: 7px 8px; border-radius: 9px; }
+  .todo-it:hover { background: var(--surface-2); }
+  .todo-cb { flex: none; width: 18px; height: 18px; margin-top: 1px; border: 1.6px solid var(--muted); border-radius: 5px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; color: transparent; }
+  .todo-it.done .todo-cb { background: var(--good); border-color: var(--good); color: #fff; }
+  .todo-cb svg { width: 12px; height: 12px; }
+  .todo-tx { flex: 1; font-size: .86rem; line-height: 1.35; }
+  .todo-it.done .todo-tx { text-decoration: line-through; color: var(--muted); }
+  .todo-x { flex: none; opacity: 0; border: none; background: none; color: var(--muted); cursor: pointer; font-size: 1rem; line-height: 1; padding: 0 2px; }
+  .todo-it:hover .todo-x { opacity: 1; }
+  .todo-x:hover { color: var(--critical); }
+  .todo-promote { flex: none; border: none; background: none; color: var(--acc-personale); cursor: pointer; font-size: 1.05rem; line-height: 1; padding: 0 2px; margin-top: 1px; }
+  .todo-promote:hover { transform: scale(1.15); }
+  .todo-arch { display: flex; align-items: center; gap: 8px; margin-top: 10px; padding-top: 9px; border-top: 1px dashed var(--border); font-size: .74rem; color: var(--muted); }
+  .todo-arch button { appearance: none; border: none; background: none; color: var(--acc-personale); cursor: pointer; font-size: .74rem; padding: 0; }
+  .todo-arch button:hover { text-decoration: underline; }
+  .todo-due { font-size: .6rem; font-weight: 700; letter-spacing: .03em; padding: 1px 6px; border-radius: 5px; margin-left: 6px; white-space: nowrap;
+              background: color-mix(in srgb, var(--warning) 22%, transparent); color: #9a6c00; }
+  :root[data-theme="dark"] .todo-due { color: var(--warning); }
+  .todo-due.soon { background: color-mix(in srgb, var(--critical) 16%, transparent); color: var(--critical); }
+  .todo-link { flex: none; color: var(--acc-personale); text-decoration: none; font-size: .95rem; line-height: 1; padding: 0 2px; margin-top: 1px; }
+  .todo-link:hover { transform: scale(1.15); }
+  .todo-why { font-size: .74rem; color: var(--muted); margin-top: 2px; line-height: 1.35; }
+  .todo-src { font-size: .58rem; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); border: 1px solid var(--border); border-radius: 5px; padding: 0 5px; margin-left: 7px; vertical-align: middle; }
+  .snip { font-size: .78rem; color: var(--muted); margin: 4px 0 0; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="top">
+    <div class="title">
+      <h1>Dashboard personale</h1>
+      <div class="ids">
+        <span><i class="dot" style="background:var(--acc-personale)"></i>Personale</span>
+        <span><i class="dot" style="background:var(--acc-lavoro)"></i>Lavoro</span>
+        <span><i class="dot" style="background:var(--acc-studio)"></i>Studio</span>
+        <span><i class="dot" style="background:var(--acc-progetti)"></i>Progetti</span>
+      </div>
+    </div>
+    <div class="headmeta">
+      <div class="clockbox">
+        <div class="time" id="clock">--:--</div>
+        <div class="date" id="today">—</div>
+      </div>
+      <button class="iconbtn" id="themeBtn" title="Cambia tema" aria-label="Cambia tema">
+        <svg id="themeIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"></path></svg>
+      </button>
+    </div>
+  </header>
+
+  <div class="sync">
+    <span class="live" id="liveState"><i class="pulse" id="pulse"></i>In diretta</span>
+    <span class="sep">•</span>
+    <span>Ultimo aggiornamento dati: <b id="snap">—</b> <span id="tz">(Europe/Rome)</span></span>
+    <span class="sep">•</span>
+    <span id="autoline">Aggiornamento automatico: ogni giorno 08:00 e 13:00</span>
+    <button class="refreshbtn" id="refreshBtn" title="Rileggi Gmail e Calendar adesso">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"></path><path d="M21 3v5h-5"></path></svg>
+      <span id="refreshLabel">Aggiorna</span>
+    </button>
+  </div>
+
+  <!-- TODO -->
+  <section class="todo">
+    <div class="todo-col">
+      <div class="todo-h"><span>✅ I miei task</span></div>
+      <form class="todo-add" id="todoAddForm">
+        <input id="todoInput" type="text" placeholder="Aggiungi un task…" autocomplete="off" maxlength="200">
+        <button type="submit" title="Aggiungi" aria-label="Aggiungi">＋</button>
+      </form>
+      <ul class="todo-list" id="userTodos"></ul>
+    </div>
+    <div class="todo-col sug">
+      <div class="todo-h"><span>💡 Consigli</span><span class="todo-sub">generati da mail &amp; WhatsApp</span></div>
+      <ul class="todo-list" id="sugTodos"></ul>
+    </div>
+  </section>
+
+  <!-- PANELS -->
+  <div class="panels">
+
+    <!-- POSTA -->
+    <section class="panel" id="mailPanel">
+      <div class="phead">
+        <h2>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"></rect><path d="m22 7-10 5L2 7"></path></svg>
+          Posta — da gestire
+        </h2>
+        <span class="tag real" id="mailSrcTag">Gmail</span>
+      </div>
+      <div class="pbody">
+        <ul class="rows" id="mailRows"></ul>
+      </div>
+    </section>
+
+    <!-- AGENDA -->
+    <section class="panel" id="agendaPanel">
+      <div class="phead">
+        <h2>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"></rect><path d="M16 2v4M8 2v4M3 10h18"></path></svg>
+          Agenda di oggi
+        </h2>
+        <span class="tag real" id="calSrcTag">Calendar</span>
+      </div>
+      <div id="alldayHost"></div>
+      <div class="pbody">
+        <ul class="agenda" id="agendaRows"></ul>
+      </div>
+    </section>
+
+  </div>
+
+  <!-- WHATSAPP -->
+  <section class="panel wa" id="waPanel" hidden>
+    <div class="phead">
+      <h2>
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12.04 2a9.9 9.9 0 0 0-8.4 15.2L2 22l4.9-1.6A9.9 9.9 0 1 0 12.04 2Zm0 18a8 8 0 0 1-4.1-1.1l-.3-.2-2.9.95.95-2.83-.2-.3A8 8 0 1 1 12.04 20Zm4.5-6c-.25-.12-1.47-.72-1.7-.8-.23-.09-.4-.13-.56.12-.17.25-.64.8-.79.97-.14.16-.29.18-.54.06-.25-.12-1.05-.39-2-1.23-.74-.66-1.24-1.47-1.38-1.72-.14-.25-.02-.38.1-.5.11-.11.25-.29.37-.43.12-.15.16-.25.25-.42.08-.17.04-.31-.02-.43-.06-.12-.56-1.35-.77-1.85-.2-.48-.4-.42-.56-.42h-.48c-.16 0-.43.06-.65.31-.23.25-.86.85-.86 2.07 0 1.22.89 2.4 1.01 2.56.12.17 1.74 2.66 4.22 3.73.59.25 1.05.4 1.4.52.6.19 1.14.16 1.57.1.48-.07 1.47-.6 1.68-1.18.2-.58.2-1.07.15-1.18-.06-.1-.22-.16-.47-.28Z"></path></svg>
+        WhatsApp — recap
+      </h2>
+      <span class="tag" id="waMeta">—</span>
+    </div>
+    <div class="wa-body" id="waBody"></div>
+  </section>
+
+  <div class="foot">
+    <div class="src" id="srcChips"></div>
+  </div>
+
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+(function(){
+  "use strict";
+
+  var root = document.documentElement;
+
+  // ----- Theme toggle -----
+  var btn = document.getElementById('themeBtn');
+  var icon = document.getElementById('themeIcon');
+  var moon = '<path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8Z"></path>';
+  var sun  = '<circle cx="12" cy="12" r="4"></circle><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"></path>';
+  function prefersDark(){ return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches; }
+  function isDark(){ var t = root.getAttribute('data-theme'); return t === 'dark' || ((t === 'auto' || !t) && prefersDark()); }
+  function syncIcon(){ icon.innerHTML = isDark() ? sun : moon; }
+  try {
+    var saved = localStorage.getItem('dash-theme');
+    if (saved) root.setAttribute('data-theme', saved);
+  } catch(e){}
+  btn.addEventListener('click', function(){
+    var next = isDark() ? 'light' : 'dark';
+    root.setAttribute('data-theme', next);
+    try { localStorage.setItem('dash-theme', next); } catch(e){}
+    syncIcon();
+  });
+  syncIcon();
+
+  // ----- Live clock -----
+  var clock = document.getElementById('clock');
+  var today = document.getElementById('today');
+  function tick(){
+    var d = new Date();
+    clock.textContent = d.toLocaleTimeString('it-IT', {hour:'2-digit', minute:'2-digit'});
+    today.textContent = d.toLocaleDateString('it-IT', {weekday:'long', day:'numeric', month:'long'});
+  }
+  tick(); setInterval(tick, 1000*20);
+
+  // ----- Helpers -----
+  var ACC = {
+    personale: {name:'Personale', color:'var(--acc-personale)'},
+    lavoro: {name:'Lavoro', color:'var(--acc-lavoro)'},
+    studio: {name:'Studio', color:'var(--acc-studio)'},
+    progetti:     {name:'Progetti', color:'var(--acc-progetti)'}
+  };
+  var ICON = {
+    critical: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><path d="M12 8v4.5M12 16h.01"></path></svg>',
+    warning:  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 2"></path></svg>',
+    info:     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><path d="M12 11v5M12 8h.01"></path></svg>'
+  };
+  var CHECK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"></path></svg>';
+  var ARCH  = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="4" rx="1"></rect><path d="M5 8v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8M10 12h4"></path></svg>';
+  var EXTLINK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6M10 14 21 3M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path></svg>';
+  function esc(s){ return String(s == null ? '' : s).replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
+  function rel(iso){
+    var then = new Date(iso), now = new Date();
+    if (isNaN(then)) return '';
+    var m = Math.round((now - then)/60000);
+    if (m < 1) return 'ora';
+    if (m < 60) return m + ' min fa';
+    var h = Math.round(m/60);
+    if (h < 24) return h + ' h fa';
+    var g = Math.round(h/24);
+    if (g === 1) return 'ieri';
+    if (g < 7) return g + ' g fa';
+    return then.toLocaleDateString('it-IT', {day:'numeric', month:'short'});
+  }
+  function mins(t){ var p = String(t).split(':'); return (+p[0])*60 + (+p[1]); }
+  function fmtSnap(iso){
+    var d = new Date(iso);
+    if (isNaN(d)) return '—';
+    return d.toLocaleString('it-IT', { day:'numeric', month:'short', hour:'2-digit', minute:'2-digit', timeZone:'Europe/Rome' });
+  }
+
+  var toastEl = document.getElementById('toast'), toastTimer = null;
+  function toast(msg, isErr){
+    toastEl.textContent = msg;
+    toastEl.className = 'toast show' + (isErr ? ' err' : '');
+    if (toastTimer) clearTimeout(toastTimer);
+    toastTimer = setTimeout(function(){ toastEl.className = 'toast'; }, 3200);
+  }
+
+  // ----- Mail actions (require gmail.modify scope on the backend token) -----
+  var handledMail = (function(){ try { return JSON.parse(localStorage.getItem('handledMail') || '[]'); } catch(e){ return []; } })();
+  function markHandled(id){
+    if (!id || handledMail.indexOf(id) !== -1) return;
+    handledMail.push(id);
+    if (handledMail.length > 300) handledMail = handledMail.slice(-300);
+    try { localStorage.setItem('handledMail', JSON.stringify(handledMail)); } catch(e){}
+  }
+  function mailAction(id, threadId, acc, action, li){
+    var btns = li.querySelectorAll('.actbtn');
+    btns.forEach(function(b){ b.disabled = true; });
+    fetch('/api/mail/action', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ id: id, threadId: threadId, acc: acc, action: action })
+    })
+      .then(function(r){ return r.json().then(function(j){ return { ok: r.ok, status: r.status, j: j }; }); })
+      .then(function(res){
+        if (res.ok){
+          markHandled(id);
+          li.style.transition = 'opacity .24s';
+          li.style.opacity = '0';
+          setTimeout(function(){ li.remove(); }, 230);
+          toast(action === 'archive' ? 'Archiviata' : (action === 'trash' ? 'Nel cestino' : 'Segnata come letta'));
+        } else if (res.status === 403 || (res.j && res.j.needScope)){
+          toast('Per modificare le mail serve il permesso gmail.modify (vedi guida).', true);
+          btns.forEach(function(b){ b.disabled = false; });
+        } else {
+          toast('Azione non riuscita. Riprova.', true);
+          btns.forEach(function(b){ b.disabled = false; });
+        }
+      })
+      .catch(function(){ toast('Azione non riuscita. Riprova.', true); btns.forEach(function(b){ b.disabled = false; }); });
+  }
+
+  // ----- Rendering -----
+  function renderMail(list){
+    var mr = document.getElementById('mailRows');
+    mr.innerHTML = '';
+    list = (list || []).filter(function(m){ return handledMail.indexOf(m.id) === -1; });
+    if (!list.length){
+      mr.innerHTML = '<li class="empty">Niente da gestire in questo momento. </li>';
+      return;
+    }
+    list.forEach(function(m){
+      var a = ACC[m.acc] || {name: m.acc || '', color:'var(--muted)'};
+      var st = (m.status === 'critical' || m.status === 'warning') ? m.status : 'info';
+      var li = document.createElement('li'); li.className = 'row';
+      var actions = m.id
+        ? '<div class="rowact">'+
+            '<a class="actbtn" href="https://mail.google.com/mail/u/0/#all/'+encodeURIComponent(m.threadId || m.id)+'" target="_blank" rel="noopener" title="Apri in Gmail" aria-label="Apri in Gmail">'+EXTLINK+'</a>'+
+            '<button class="actbtn" data-act="read" title="Segna come letta" aria-label="Segna come letta">'+CHECK+'</button>'+
+            '<button class="actbtn" data-act="archive" title="Archivia" aria-label="Archivia">'+ARCH+'</button>'+
+          '</div>'
+        : '';
+      li.innerHTML =
+        '<span class="stat '+st+'">'+ICON[st]+'</span>'+
+        '<div class="rowmain">'+
+          '<p class="subj">'+esc(m.subj)+'</p>'+
+          '<div class="meta">'+
+            '<span class="chip"><i class="dot" style="background:'+a.color+'"></i>'+esc(a.name)+'</span>'+
+            '<span>'+esc(m.from)+'</span>'+
+            (m.badge ? '<span class="badge '+st+'">'+esc(m.badge)+'</span>' : '')+
+          '</div>'+
+          (m.snippet ? '<p class="snip">'+esc(m.snippet)+'</p>' : '')+
+        '</div>'+
+        '<div class="rowend"><span class="rowtime">'+esc(rel(m.when))+'</span>'+actions+'</div>';
+      if (m.id){
+        li.querySelectorAll('button.actbtn').forEach(function(b){
+          b.addEventListener('click', function(){ mailAction(m.id, m.threadId, m.acc, b.getAttribute('data-act'), li); });
+        });
+      }
+      mr.appendChild(li);
+    });
+  }
+
+  function renderAllday(list){
+    var host = document.getElementById('alldayHost');
+    host.innerHTML = '';
+    (list || []).forEach(function(v){
+      var div = document.createElement('div'); div.className = 'allday';
+      div.innerHTML = '<span class="ad-dot"></span><div><b>Tutto il giorno</b> &middot; '+esc(v.name)+
+        (v.range ? ' <span class="ad-range">'+esc(v.range)+'</span>' : '')+'</div>';
+      host.appendChild(div);
+    });
+  }
+
+  function renderAgenda(list){
+    var ar = document.getElementById('agendaRows');
+    ar.innerHTML = '';
+    var nextName = null, nextTime = null, liveName = null;
+    var nowM = new Date().getHours()*60 + new Date().getMinutes();
+    if (!list || !list.length){
+      ar.innerHTML = '<li class="empty">Nessun impegno con orario oggi.</li>';
+    } else {
+      list.forEach(function(v){
+        var live = nowM >= mins(v.s) && nowM < mins(v.e);
+        if (live && !liveName) liveName = v.name;
+        if (!nextName && mins(v.s) > nowM){ nextName = v.name; nextTime = v.s; }
+        var rail = (ACC[v.acc] && ACC[v.acc].color) || 'var(--muted)';
+        var li = document.createElement('li'); li.className = 'ev' + (live ? ' now' : '');
+        li.style.setProperty('--rail', rail);
+        li.innerHTML =
+          '<div class="t">'+esc(v.s)+'<small>'+esc(v.e)+'</small></div>'+
+          '<div class="body"><div class="name">'+esc(v.name)+'</div>'+
+          (v.where ? '<div class="where">'+esc(v.where)+'</div>' : '')+'</div>';
+        ar.appendChild(li);
+      });
+    }
+  }
+
+  // ----- To-do (my column persists server-side; suggestions come from the morning task) -----
+  var CHK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"></path></svg>';
+  var userTodos = [];
+  var sugList = [];
+  var todoSaveTimer = null;
+  function saveUserTodos(){
+    if (todoSaveTimer) clearTimeout(todoSaveTimer);
+    todoSaveTimer = setTimeout(function(){
+      fetch('/api/todos', { method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify({ user: userTodos, suggested: sugList }) }).catch(function(){});
+    }, 250);
+  }
+  function newTodo(text, extra){
+    var t = { id: String(Date.now()) + Math.random().toString(36).slice(2,6), text: text, done: false };
+    if (extra){ ['due','url','why','src'].forEach(function(k){ if (extra[k]) t[k] = extra[k]; }); }
+    return t;
+  }
+  // Links come from e-mail bodies: only ever follow http(s), never javascript: etc.
+  function safeUrl(u){ return /^https?:\/\//i.test(String(u || '')) ? String(u) : ''; }
+  function dueBadge(due){
+    if (!due) return '';
+    var d = new Date(due);
+    if (isNaN(d)) return '<span class="todo-due">⏰ '+esc(due)+'</span>';
+    var days = Math.ceil((d - new Date()) / 86400000);
+    var lbl = d.toLocaleDateString('it-IT', { day:'numeric', month:'short' });
+    var pre = days < 0 ? 'scaduto · ' : (days === 0 ? 'oggi · ' : (days === 1 ? 'domani · ' : ''));
+    return '<span class="todo-due'+(days <= 3 ? ' soon' : '')+'">⏰ '+esc(pre)+esc(lbl)+'</span>';
+  }
+  function itemBody(o){
+    return '<div class="todo-tx">'+esc(o.text)+dueBadge(o.due)+
+      (o.src ? '<span class="todo-src">'+esc(o.src)+'</span>' : '')+
+      (o.why ? '<div class="todo-why">'+esc(o.why)+'</div>' : '')+'</div>'+
+      (safeUrl(o.url) ? '<a class="todo-link" href="'+esc(safeUrl(o.url))+'" target="_blank" rel="noopener" title="Apri il link">↗</a>' : '');
+  }
+  var showArchived = false;
+  function todoLi(t){
+    var li = document.createElement('li'); li.className = 'todo-it' + (t.done ? ' done' : '');
+    li.innerHTML = '<span class="todo-cb">'+CHK+'</span>'+itemBody(t)+
+      '<button class="todo-x" title="Elimina" aria-label="Elimina">✕</button>';
+    li.querySelector('.todo-cb').addEventListener('click', function(){
+      t.done = !t.done;
+      saveUserTodos();
+      if (t.done){ li.style.transition = 'opacity .2s'; li.style.opacity = '0'; setTimeout(renderUserTodos, 190); }
+      else renderUserTodos();
+    });
+    li.querySelector('.todo-x').addEventListener('click', function(){
+      userTodos = userTodos.filter(function(x){ return x !== t; }); renderUserTodos(); saveUserTodos();
+    });
+    return li;
+  }
+  function renderUserTodos(){
+    var el = document.getElementById('userTodos'); el.innerHTML = '';
+    var active = userTodos.filter(function(t){ return !t.done; });
+    var archived = userTodos.filter(function(t){ return t.done; });
+    if (!active.length && !archived.length){ el.innerHTML = '<li class="empty">Niente di segnato. Aggiungi qualcosa qui sopra 👆</li>'; return; }
+    if (!active.length) el.innerHTML = '<li class="empty">Tutto fatto ✨</li>';
+    active.forEach(function(t){ el.appendChild(todoLi(t)); });
+    if (showArchived) archived.forEach(function(t){ el.appendChild(todoLi(t)); });
+    if (archived.length){
+      var bar = document.createElement('li'); bar.className = 'todo-arch';
+      bar.innerHTML = '<span>✓ '+archived.length+' archiviat'+(archived.length === 1 ? 'o' : 'i')+'</span>'+
+        '<button type="button">'+(showArchived ? 'nascondi' : 'mostra')+'</button>';
+      bar.querySelector('button').addEventListener('click', function(){ showArchived = !showArchived; renderUserTodos(); });
+      el.appendChild(bar);
+    }
+  }
+  function renderSugTodos(){
+    var el = document.getElementById('sugTodos'); el.innerHTML = '';
+    if (!sugList.length){ el.innerHTML = '<li class="empty">Nessun consiglio ora — arriva col recap del mattino.</li>'; return; }
+    sugList.forEach(function(s){
+      var li = document.createElement('li'); li.className = 'todo-it';
+      li.innerHTML = '<button class="todo-promote" title="Aggiungi ai miei task" aria-label="Aggiungi ai miei task">＋</button>'+
+        itemBody(s)+
+        '<button class="todo-x" title="Elimina consiglio" aria-label="Elimina">✕</button>';
+      li.querySelector('.todo-promote').addEventListener('click', function(){
+        userTodos.push(newTodo(s.text, s));
+        sugList = sugList.filter(function(x){ return x !== s; });
+        renderUserTodos(); renderSugTodos(); saveUserTodos(); toast('Aggiunto ai tuoi task');
+      });
+      li.querySelector('.todo-x').addEventListener('click', function(){
+        sugList = sugList.filter(function(x){ return x !== s; });
+        renderSugTodos(); saveUserTodos();
+      });
+      el.appendChild(li);
+    });
+  }
+  (function(){
+    var f = document.getElementById('todoAddForm');
+    if (f) f.addEventListener('submit', function(e){
+      e.preventDefault();
+      var inp = document.getElementById('todoInput'); var v = inp.value.trim();
+      if (!v) return;
+      userTodos.push(newTodo(v)); inp.value = '';
+      renderUserTodos(); saveUserTodos();
+    });
+  })();
+  renderUserTodos(); renderSugTodos();
+
+  var waDismissed = [];
+  function waKey(u){ return (u.chat || '') + '|' + (u.text || ''); }
+  function saveWaDismissed(){
+    fetch('/api/wa-dismiss', { method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify({ dismissed: waDismissed }) }).catch(function(){});
+  }
+  function waItemHtml(u, left){
+    var key = waKey(u), done = waDismissed.indexOf(key) !== -1;
+    return '<li class="wa-item'+(left ? ' wa-left' : '')+(done ? ' done' : '')+'" data-key="'+esc(key)+'">'+
+      '<span class="wa-cb" title="Segna come fatto">'+CHK+'</span>'+
+      (u.tag ? '<span class="wa-tag">'+esc(u.tag)+'</span>' : '')+
+      '<div><b>'+esc(u.chat)+'</b>'+
+        (u.cat ? '<span class="wa-cat">'+esc(u.cat)+'</span>' : '')+
+        (u.age ? '<span class="wa-age">'+esc(u.age)+'</span>' : '')+
+        '<div class="wa-text">'+esc(u.text)+'</div>'+
+      '</div></li>';
+  }
+  // ----- WhatsApp group summaries (stay until marked read; reappear only if content changes) -----
+  var waGroupsRead = [];
+  function hashStr(s){ var h = 0, str = String(s || ''); for (var i = 0; i < str.length; i++){ h = (h * 31 + str.charCodeAt(i)) | 0; } return String(h); }
+  function saveWaGroupsRead(){
+    fetch('/api/wa-groups-read', { method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify({ read: waGroupsRead }) }).catch(function(){});
+  }
+  function groupIsRead(g){
+    var h = hashStr(g.summary);
+    for (var i = 0; i < waGroupsRead.length; i++){ if (waGroupsRead[i].chat === g.chat && waGroupsRead[i].hash === h) return true; }
+    return false;
+  }
+  function waGroupHtml(g){
+    return '<li class="wa-item'+(groupIsRead(g) ? ' done' : '')+'" data-chat="'+esc(g.chat)+'" data-hash="'+esc(hashStr(g.summary))+'">'+
+      '<span class="wa-cb" title="Segna come letto">'+CHK+'</span>'+
+      '<div><b>'+esc(g.chat)+'</b>'+
+        (g.cat ? '<span class="wa-cat">'+esc(g.cat)+'</span>' : '')+
+        '<div class="wa-text">'+esc(g.summary)+'</div>'+
+      '</div></li>';
+  }
+  function renderWhatsApp(wa){
+    var panel = document.getElementById('waPanel');
+    if (!wa || (!(wa.urgent && wa.urgent.length) && !(wa.leftUnread && wa.leftUnread.length) && !(wa.groups && wa.groups.length))){
+      panel.hidden = true; return;
+    }
+    panel.hidden = false;
+    if (Array.isArray(wa.dismissed)) waDismissed = wa.dismissed;
+    if (Array.isArray(wa.groupsRead)) waGroupsRead = wa.groupsRead;
+    var meta = [];
+    if (wa.snapshot) meta.push(wa.snapshot);
+    if (wa.unreadTotal != null) meta.push(wa.unreadTotal + ' non lette');
+    document.getElementById('waMeta').textContent = meta.join(' · ') || '—';
+
+    var html = '';
+    if (wa.urgent && wa.urgent.length){
+      html += '<div class="wa-sec"><div class="wa-h">🔴 Da gestire</div><ul class="wa-list">';
+      wa.urgent.forEach(function(u){ html += waItemHtml(u, false); });
+      html += '</ul></div>';
+    }
+    if (wa.leftUnread && wa.leftUnread.length){
+      html += '<div class="wa-sec"><div class="wa-h">🔔 Non lette (importanti) — solo anteprima</div><ul class="wa-list">';
+      wa.leftUnread.forEach(function(u){ html += waItemHtml(u, true); });
+      html += '</ul></div>';
+    }
+    if (wa.groups && wa.groups.length){
+      var gs = wa.groups.slice().sort(function(a, b){ return (groupIsRead(a) ? 1 : 0) - (groupIsRead(b) ? 1 : 0); });
+      html += '<div class="wa-sec"><div class="wa-h">📋 Riassunti gruppi <span class="todo-sub">restano finché non li segni letti</span></div><ul class="wa-list">';
+      gs.forEach(function(g){ html += waGroupHtml(g); });
+      html += '</ul></div>';
+    }
+    if (wa.byCategory){
+      var tally = '';
+      ['lavoro','amici','famiglia'].forEach(function(c){
+        if (wa.byCategory[c] != null) tally += '<span class="chip">'+c+': '+wa.byCategory[c]+'</span>';
+      });
+      if (tally) html += '<div class="wa-tally">'+tally+'</div>';
+    }
+    var body = document.getElementById('waBody');
+    body.innerHTML = html;
+    body.querySelectorAll('.wa-cb').forEach(function(cb){
+      cb.addEventListener('click', function(){
+        var li = cb.closest('.wa-item');
+        if (li.hasAttribute('data-key')){
+          var key = li.getAttribute('data-key'), i = waDismissed.indexOf(key);
+          if (i === -1){ waDismissed.push(key); li.classList.add('done'); }
+          else { waDismissed.splice(i, 1); li.classList.remove('done'); }
+          saveWaDismissed();
+        } else if (li.hasAttribute('data-chat')){
+          var chat = li.getAttribute('data-chat'), hash = li.getAttribute('data-hash'), idx = -1;
+          for (var j = 0; j < waGroupsRead.length; j++){ if (waGroupsRead[j].chat === chat && waGroupsRead[j].hash === hash){ idx = j; break; } }
+          if (idx === -1){ waGroupsRead.push({ chat: chat, hash: hash }); li.classList.add('done'); }
+          else { waGroupsRead.splice(idx, 1); li.classList.remove('done'); }
+          saveWaGroupsRead();
+        }
+      });
+    });
+  }
+
+  function srcTag(el, ok, realText){
+    if (ok){ el.className = 'tag real'; el.textContent = realText; }
+    else { el.className = 'tag sample'; el.textContent = 'Non disponibile'; }
+  }
+
+  function render(data){
+    var s = data.sources || {};
+    var gmailOk = !!(s.gmail && s.gmail.ok);
+    var calOk   = !!(s.calendar && s.calendar.ok);
+    srcTag(document.getElementById('mailSrcTag'), gmailOk, 'Gmail');
+    srcTag(document.getElementById('calSrcTag'), calOk, 'Calendar');
+    document.getElementById('mailPanel').classList.toggle('sample', !gmailOk);
+    document.getElementById('agendaPanel').classList.toggle('sample', !calOk);
+
+    renderMail(data.mail);
+    renderAllday(data.allday);
+    renderAgenda(data.agenda);
+    renderWhatsApp(data.whatsapp);
+    if (data.todos){
+      if (Array.isArray(data.todos.user)) userTodos = data.todos.user;
+      renderUserTodos();
+      sugList = Array.isArray(data.todos.suggested) ? data.todos.suggested : [];
+      renderSugTodos();
+    }
+
+    document.getElementById('snap').textContent = fmtSnap(data.snapshot);
+    if (data.auto) document.getElementById('autoline').textContent = 'Aggiornamento automatico: ' + data.auto;
+
+    // staleness: older than 8h -> mark
+    var stale = false;
+    if (data.snapshot){ stale = (Date.now() - new Date(data.snapshot).getTime()) > 8*3600*1000; }
+    document.getElementById('pulse').classList.toggle('stale', stale);
+    document.getElementById('liveState').classList.toggle('stale', stale);
+    document.getElementById('liveState').lastChild.textContent = stale ? 'Dati non recenti' : 'In diretta';
+
+    // source chips
+    var chips = document.getElementById('srcChips');
+    chips.innerHTML = '';
+    function chip(label, ok){
+      var c = document.createElement('span'); c.className = 'chip' + (ok ? '' : ' off');
+      c.textContent = label + (ok ? ' (connesso)' : ' (offline)');
+      chips.appendChild(c);
+    }
+    chip('Gmail', gmailOk);
+    chip('Google Calendar', calOk);
+  }
+
+  // ----- Data fetching -----
+  var refreshBtn = document.getElementById('refreshBtn');
+  var refreshLabel = document.getElementById('refreshLabel');
+
+  function setLoading(on){
+    refreshBtn.disabled = on;
+    refreshBtn.classList.toggle('spinning', on);
+    refreshLabel.textContent = on ? 'Aggiorno…' : 'Aggiorna';
+  }
+
+  function load(fresh){
+    setLoading(true);
+    var url = '/api/data' + (fresh ? '?fresh=1' : '');
+    var opts = fresh ? { method:'POST', headers:{'x-dash':'1'} } : { headers:{'x-dash':'1'} };
+    return fetch(url, opts)
+      .then(function(r){
+        if (r.status === 401){ throw new Error('unauthorized'); }
+        if (!r.ok) throw new Error('http ' + r.status);
+        return r.json();
+      })
+      .then(function(data){
+        render(data);
+        if (fresh) toast('Dati aggiornati');
+        if (data.warning) toast(data.warning, true);
+      })
+      .catch(function(err){
+        if (String(err.message) === 'unauthorized'){
+          toast('Accesso non valido: apri il link con il token (?t=…)', true);
+        } else {
+          toast('Aggiornamento non riuscito. Riprova.', true);
+        }
+      })
+      .finally(function(){ setLoading(false); });
+  }
+
+  refreshBtn.addEventListener('click', function(){ load(true); });
+
+  // initial load (cached snapshot, fast)
+  load(false);
+  // light auto-refresh of the cached view every 5 min (no upstream call)
+  setInterval(function(){ if (!refreshBtn.disabled) load(false); }, 5*60*1000);
+})();
+</script>
+</body>
+</html>

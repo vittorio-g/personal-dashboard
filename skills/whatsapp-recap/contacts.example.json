@@ -1,0 +1,10 @@
+{
+  "lastRun": "1970-01-01",
+  "rule": "OPEN GROUPS ONLY. 1:1 chats must NEVER be opened (opening marks them read and sends read receipts): report them from the list preview instead. Group membership is NOT decided by this file — it comes from WhatsApp's own 'Gruppi' filter via window.groupNames().",
+  "NEVER": [],
+  "categories": {
+    "work":   { "groups": ["Team standup", "Project X"], "people": ["Boss", "Client A"] },
+    "friends":{ "groups": ["Football sunday"],           "people": ["Sam"] },
+    "family": { "groups": ["Family group"],              "people": ["Mum", "Dad"] }
+  }
+}
