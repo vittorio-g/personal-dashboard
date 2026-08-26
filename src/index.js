@@ -98,44 +98,80 @@ function parseEventText(raw) {
   // `work` masks whatever has already been consumed, so a later pattern can never
   // re-read the same characters (that made "9 - 12" count as date AND time).
   let work = n;
-  const take = (m, from, len) => {
-    if (!m) return;
-    const s = from == null ? m.index : from;
-    const e = s + (len == null ? m[0].length : len);
+  const cut = (s, e) => {
     cuts.push([s, e]);
     work = work.slice(0, s) + " ".repeat(e - s) + work.slice(e);
   };
+  const take = (m, from, len) => {
+    if (!m) return;
+    const s = from == null ? m.index : from;
+    cut(s, s + (len == null ? m[0].length : len));
+  };
   const today = romeToday();
   const base = iso(today.y, today.m, today.d);
-  let dateISO = null, start = null, end = null;
+  let dateISO = null, endDateISO = null, start = null, end = null;
   let m;
 
-  // --- date: explicit day words FIRST, so "domani, 9 - 12" doesn't read 9-12 as 9 december ---
-  if ((m = work.match(/\b(oggi|domani|dopodomani)\b/))) {
-    dateISO = addDays(base, { oggi: 0, domani: 1, dopodomani: 2 }[m[1]]);
-    take(m);
-  }
-  if (!dateISO && (m = work.match(new RegExp("\\b(" + Object.keys(GIORNI).join("|") + ")\\b")))) {
+  // --- date ------------------------------------------------------------
+  const MESI_RE = Object.keys(MESI).join("|");
+  const GG_RE = Object.keys(GIORNI).join("|");
+  const weekdayISO = (name) => {
     const [by, bm, bd] = base.split("-").map(Number);
     const cur = new Date(Date.UTC(by, bm - 1, bd)).getUTCDay();
-    let delta = (GIORNI[m[1]] - cur + 7) % 7;
-    if (delta === 0) delta = 7;                       // "lunedì" detto di lunedì = il prossimo
-    dateISO = addDays(base, delta);
-    take(m);
-  }
-  if (!dateISO && (m = work.match(new RegExp("\\b(\\d{1,2})\\s+(" + Object.keys(MESI).join("|") + ")\\b")))) {
-    const d = +m[1], mo = MESI[m[2]];
-    dateISO = iso(today.y, mo, d);
-    if (dateISO < base) dateISO = iso(today.y + 1, mo, d);
-    take(m);
-  }
-  if (!dateISO && (m = work.match(/\b(\d{1,2})\s*[\/\-.]\s*(\d{1,2})(?:\s*[\/\-.]\s*(\d{2,4}))?\b/))) {
-    const d = +m[1], mo = +m[2];
-    const y = m[3] ? (m[3].length === 2 ? 2000 + +m[3] : +m[3]) : today.y;
-    if (d >= 1 && d <= 31 && mo >= 1 && mo <= 12) {
-      dateISO = iso(y, mo, d);
-      if (!m[3] && dateISO < base) dateISO = iso(y + 1, mo, d);   // già passata → anno prossimo
-      take(m);
+    let delta = (GIORNI[name] - cur + 7) % 7;
+    if (delta === 0) delta = 7;                       // "lunedì" said on a Monday = the next one
+    return addDays(base, delta);
+  };
+  /** First date-ish token at/after `from`; month/year stay null when unstated. */
+  const scanDate = (txt, from) => {
+    const sub = txt.slice(from);
+    const at = (r) => from + r.index;
+    let r;
+    // "venerdì 13 agosto" / "venerdì 13" / "venerdì" — a number right after a
+    // weekday is the DAY OF MONTH, never an hour.
+    if ((r = sub.match(new RegExp("\\b(" + GG_RE + ")(?:\\s+(\\d{1,2}))?(?:\\s+(" + MESI_RE + "))?\\b")))) {
+      if (r[2]) return { s: at(r), e: at(r) + r[0].length, day: +r[2], month: r[3] ? MESI[r[3]] : null, year: null };
+      return { s: at(r), e: at(r) + r[0].length, fixed: weekdayISO(r[1]) };
+    }
+    if ((r = sub.match(new RegExp("\\b(\\d{1,2})\\s+(" + MESI_RE + ")\\b"))))
+      return { s: at(r), e: at(r) + r[0].length, day: +r[1], month: MESI[r[2]], year: null };
+    // "13/8", "13.8.2026", "13-8-2026" — NO spaces around separators, so a span
+    // like "13 - 16" is left to the range logic instead of becoming one date.
+    r = sub.match(/\b(\d{1,2})[\/.](\d{1,2})(?:[\/.](\d{2,4}))?\b/) ||
+        sub.match(/\b(\d{1,2})-(\d{1,2})-(\d{2,4})\b/);
+    if (r) {
+      const d = +r[1], mo = +r[2];
+      if (d >= 1 && d <= 31 && mo >= 1 && mo <= 12)
+        return { s: at(r), e: at(r) + r[0].length, day: d, month: mo,
+                 year: r[3] ? (r[3].length === 2 ? 2000 + +r[3] : +r[3]) : null };
+    }
+    if ((r = sub.match(/\b(oggi|domani|dopodomani)\b/)))
+      return { s: at(r), e: at(r) + r[0].length, fixed: addDays(base, { oggi: 0, domani: 1, dopodomani: 2 }[r[1]]) };
+    return null;
+  };
+  const resolveDate = (t, monthFallback) => {
+    if (t.fixed) return t.fixed;
+    const mo = t.month || monthFallback || today.m;
+    const y = t.year || today.y;
+    let s = iso(y, mo, t.day);
+    if (!t.year && s < base) s = iso(y + 1, mo, t.day);   // already past -> next year
+    return s;
+  };
+
+  const d1 = scanDate(work, 0);
+  if (d1) {
+    const conn = work.slice(d1.e).match(/^\s*(?:-|–|al|alla|a|fino al)\s+/);
+    const d2 = conn ? scanDate(work, d1.e + conn[0].length) : null;
+    if (d2 && d2.s === d1.e + conn[0].length) {
+      // "venerdì 13 - lunedì 16 agosto" is a span; the first date borrows the
+      // month from the second when it doesn't state one.
+      dateISO = resolveDate(d1, d2.month);
+      endDateISO = resolveDate(d2, d2.month);
+      if (endDateISO < dateISO) endDateISO = dateISO;
+      cut(d1.s, d2.e);
+    } else {
+      dateISO = resolveDate(d1, null);
+      cut(d1.s, d1.e);
     }
   }
 
@@ -176,7 +212,8 @@ function parseEventText(raw) {
   }
 
   if (!dateISO) dateISO = iso(today.y, today.m, today.d);
-  return { title, dateISO, start, end };
+  if (endDateISO && endDateISO !== dateISO) { start = null; end = null; }  // a span is all-day
+  return { title, dateISO, endDateISO, start, end };
 }
 
 /** Turn one inbound WhatsApp text into an action. Returns the reply to send back. */
@@ -210,16 +247,22 @@ async function handleWaCommand(env, text) {
     try {
       const token = await tokenForAccount(env, "personale");
       const ev = { summary: p.title };
+      const lastDay = p.endDateISO || p.dateISO;
       if (p.start) {
         ev.start = { dateTime: `${p.dateISO}T${p.start}:00`, timeZone: "Europe/Rome" };
         ev.end = { dateTime: `${p.dateISO}T${p.end}:00`, timeZone: "Europe/Rome" };
       } else {
+        // all-day: Google wants an EXCLUSIVE end date, hence +1 on the last day
         ev.start = { date: p.dateISO };
-        ev.end = { date: addDays(p.dateISO, 1) };
+        ev.end = { date: addDays(lastDay, 1) };
       }
       await createEvent(token, ev);
-      return `📅 Evento creato: ${p.title}\n${fmtIt(p.dateISO)}` +
-        (p.start ? ` · ${p.start}-${p.end}` : " · tutto il giorno");
+      // Show the year whenever it is not the current one, so a wrong roll-over is visible.
+      const yr = (d) => (d.slice(0, 4) === String(romeToday().y) ? "" : " " + d.slice(0, 4));
+      const when = lastDay !== p.dateISO
+        ? `${fmtIt(p.dateISO)} → ${fmtIt(lastDay)}${yr(lastDay)} · tutto il giorno`
+        : `${fmtIt(p.dateISO)}${yr(p.dateISO)}` + (p.start ? ` · ${p.start}-${p.end}` : " · tutto il giorno");
+      return `📅 Evento creato: ${p.title}\n${when}`;
     } catch (e) {
       const msg = String((e && e.message) || e);
       if (/gapi_40[13]|insufficient|ACCESS_TOKEN_SCOPE|insufficientPermissions/i.test(msg)) {

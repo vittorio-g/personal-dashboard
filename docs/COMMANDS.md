@@ -35,6 +35,8 @@ The wording is Italian; adapt `MESI`, `GIORNI` and the keyword regexes in
 | `dalle 10.30 alle 12` | time range |
 | `9 - 12`, `20-22` | time range |
 | `15` on its own | start time |
+| `venerdì 13` | day **13** of the month, not 13:00 |
+| `13/8 - 16/8`, `venerdì 13 - lunedì 16 agosto` | a multi-day, all-day span |
 
 Rules that avoid the usual ambiguities:
 - Day words win over numbers, so `cal domani, 9 - 12, Sam` is *tomorrow 09:00-12:00*,
@@ -43,6 +45,11 @@ Rules that avoid the usual ambiguities:
 - A date already in the past rolls to next year (`3/1` in August → 3 January next year).
 - No time → all-day event. A start with no end → one hour.
 - Filler words are trimmed only at the edges, so `cena di capodanno` keeps its "di".
+- A number right after a weekday is the day of the month, so `venerdì 13` is not 13:00.
+- Two dates joined by `-` or `al` become a span; the first borrows the month from the
+  second (`venerdì 13 - lunedì 16 agosto` = 13→16 August, all-day).
+- The reply prints the year whenever it is not the current one, so a date that rolled
+  into next year is visible instead of silent.
 
 Check any phrase without touching your calendar:
 
