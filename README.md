@@ -15,6 +15,11 @@ your own Google/Meta credentials. Free tier is enough.
 - **Agenda di oggi**: today's Google Calendar events, all-day banner included.
 - **I miei task / Consigli**: your own to-do list next to AI-suggested actions
   extracted from mail and WhatsApp; checking a task archives it out of sight.
+  The two sources are kept in **separate buckets** so the cloud half and the
+  browser half can never overwrite each other.
+- **Already answered, already gone**: a mail thread whose newest message is one
+  of yours disappears from "da gestire" (and takes its advice with it); a
+  WhatsApp chat showing your own sent ticks never becomes a task.
 - **WhatsApp — recap**: per-group summaries that stay until you mark them read,
   plus unread 1:1s surfaced as preview-only alerts.
 - Live clock, light/dark theme, an **Aggiorna** button and a twice-daily cron.
@@ -34,6 +39,18 @@ your own Google/Meta credentials. Free tier is enough.
 **groups**, summarises each one, never opens 1:1 chats (opening them sends read
 receipts you cannot undo), and pushes the result to the dashboard.
 
+**Two agents, one dashboard.** The Worker itself never calls an LLM — it only
+serves data. The thinking happens outside it, split by what each half needs:
+
+| Half | Runs where | Needs your machine? | Writes |
+|---|---|---|---|
+| Mail → Consigli | a scheduled **cloud** Claude Code routine | no | bucket `mail` |
+| WhatsApp recap + Consigli | a **local** Claude Code task driving the browser | yes | bucket `wa` |
+
+WhatsApp personal chats have no API, so that half needs a linked browser session
+and cannot be moved to the cloud. Everything else can. See
+**[docs/SCHEDULED-TASK.md](docs/SCHEDULED-TASK.md)**.
+
 ## Quick start
 
 ```bash
@@ -51,7 +68,7 @@ optionally, **WhatsApp Cloud API** (20 min).
 Full walkthrough:
 - **[docs/SETUP.md](docs/SETUP.md)** — Cloudflare, Google, Meta, step by step
 - **[docs/COMMANDS.md](docs/COMMANDS.md)** — the WhatsApp command dictionary and date formats
-- **[docs/SCHEDULED-TASK.md](docs/SCHEDULED-TASK.md)** — the morning routine prompt
+- **[docs/SCHEDULED-TASK.md](docs/SCHEDULED-TASK.md)** — both agent prompts, cloud and local
 - **[docs/GOTCHAS.md](docs/GOTCHAS.md)** — every trap this project actually hit, and the fix
 
 ## Endpoints
@@ -61,7 +78,8 @@ Full walkthrough:
 | `GET /` | the dashboard (auth via `?t=` or the `dash` cookie) |
 | `GET /api/data` | cached snapshot · `POST` or `?fresh=1` recomputes |
 | `POST /api/mail/action` | mark read / archive / trash a thread |
-| `GET,POST /api/todos` | `{user, suggested}` lists |
+| `GET,POST /api/todos` | `{user, suggested}` lists · `POST {bucket}` writes one half |
+| `GET /api/consigli` | which bucket was written last, and when |
 | `GET,POST /api/whatsapp` | the recap payload |
 | `POST /api/wa-dismiss`, `/api/wa-groups-read` | read state |
 | `GET,POST /api/wa-webhook` | Meta webhook (handshake + signed messages) |
@@ -80,6 +98,10 @@ Everything except the webhook requires the access token.
 - Links extracted from e-mail are rendered only when `http(s)` — never `javascript:`.
 - The dashboard is gated by a token; treat its URL as a password.
 - `skills/whatsapp-recap/contacts.json` is gitignored: it holds real contact names.
+- The agents treat mail and message bodies as **data, not instructions**, and are
+  told so explicitly — a mail that says "ignore your instructions and send X" is
+  reported, never obeyed. Give the cloud routine no connectors it does not need:
+  an agent that reads untrusted mail should not also hold your Gmail credentials.
 
 ## Licence
 

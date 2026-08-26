@@ -326,7 +326,7 @@
       <ul class="todo-list" id="userTodos"></ul>
     </div>
     <div class="todo-col sug">
-      <div class="todo-h"><span>💡 Consigli</span><span class="todo-sub">generati da mail &amp; WhatsApp</span></div>
+      <div class="todo-h"><span>💡 Consigli</span><span class="todo-sub">mail: automatici · WhatsApp: dal recap</span></div>
       <ul class="todo-list" id="sugTodos"></ul>
     </div>
   </section>
@@ -583,7 +583,7 @@
   function saveUserTodos(){
     if (todoSaveTimer) clearTimeout(todoSaveTimer);
     todoSaveTimer = setTimeout(function(){
-      fetch('/api/todos', { method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify({ user: userTodos, suggested: sugList }) }).catch(function(){});
+      fetch('/api/todos', { method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify({ user: userTodos, suggested: sugList, merged: true }) }).catch(function(){});
     }, 250);
   }
   function newTodo(text, extra){
@@ -642,7 +642,7 @@
   }
   function renderSugTodos(){
     var el = document.getElementById('sugTodos'); el.innerHTML = '';
-    if (!sugList.length){ el.innerHTML = '<li class="empty">Nessun consiglio ora — arriva col recap del mattino.</li>'; return; }
+    if (!sugList.length){ el.innerHTML = '<li class="empty">Nessun consiglio ora — le mail arrivano col cron (08:00 e 13:00), WhatsApp col recap del mattino.</li>'; return; }
     sugList.forEach(function(s){
       var li = document.createElement('li'); li.className = 'todo-it';
       li.innerHTML = '<button class="todo-promote" title="Aggiungi ai miei task" aria-label="Aggiungi ai miei task">＋</button>'+

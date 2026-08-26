@@ -6,7 +6,12 @@ import { getAccessToken, gmailSnapshot, calendarSnapshot, modifyMessage, modifyT
 const KV_KEY = "snapshot";
 const WA_KEY = "whatsapp";
 const TODO_USER_KEY = "todos_user";
-const TODO_SUG_KEY = "todos_suggested";
+// Consigli live in two separate buckets, so the cloud half and the browser half never
+// overwrite each other: "mail" is written by a scheduled cloud Claude Code routine,
+// "wa" by the local WhatsApp recap task. Neither can clobber the other.
+const TODO_SUG_KEY = "todos_suggested";        // bucket "wa"
+const TODO_SUG_MAIL_KEY = "todos_suggested_mail"; // bucket "mail"
+const CONSIGLI_STATUS_KEY = "consigli_status";
 const WA_DISMISS_KEY = "wa_dismissed";
 const WA_GROUPS_READ_KEY = "wa_groups_read";
 const WA_INBOX_KEY = "wa_inbox";
@@ -383,7 +388,7 @@ async function computeSnapshot(env) {
   const now = new Date();
 
   let unread = 0, unread24h = 0, daGestire = 0, cap24 = false, capDG = false;
-  let mail = [], timed = [], allday = [];
+  let mail = [], timed = [], allday = [], pending = [], repliedN = 0;
   const gmailAccs = [], calAccs = [], errors = [];
 
   if (!clientId || !clientSecret) {
@@ -403,6 +408,8 @@ async function computeSnapshot(env) {
       const g = await gmailSnapshot(token, acc.id);
       unread += g.unread; unread24h += g.unread24h; daGestire += g.daGestire;
       cap24 = cap24 || g.unread24hCapped; capDG = capDG || g.daGestireCapped;
+      pending = pending.concat(g.pending || []);
+      repliedN += g.replied || 0;
       mail = mail.concat(g.items);
       gmailAccs.push(acc.id);
     } catch (e) { errors.push(acc.id + ":gmail"); }
@@ -437,6 +444,10 @@ async function computeSnapshot(env) {
       impegni: timed.length,
     },
     mail,
+    // Threads still waiting for an answer from you (all of them, not just the top 6):
+    // lets the Consigli drop advice about mail you have since replied to.
+    pending,
+    replied: repliedN,
     agenda: timed,
     allday,
     sources: {
@@ -465,9 +476,63 @@ function notConfiguredSnapshot(now, warning) {
   };
 }
 
+// ---------- Consigli: two buckets ("mail" from the cloud, "wa" from the local recap) ----------
+
+const SUG_KEYS = { mail: TODO_SUG_MAIL_KEY, wa: TODO_SUG_KEY };
+
+async function readBucket(env, b) {
+  let arr = [];
+  try {
+    const raw = await env.DASH_KV.get(SUG_KEYS[b]);
+    arr = raw ? JSON.parse(raw) : [];
+  } catch (_) {}
+  return (Array.isArray(arr) ? arr : []).map((x) => Object.assign({}, x, { bucket: b }));
+}
+
+async function writeBucket(env, b, arr, stamp = true) {
+  const list = (arr || []).slice(0, 100);
+  await env.DASH_KV.put(SUG_KEYS[b], JSON.stringify(list));
+  if (!stamp) return; // a prune is not a fresh generation
+  try {
+    const raw = await env.DASH_KV.get(CONSIGLI_STATUS_KEY);
+    const st = raw ? JSON.parse(raw) : {};
+    st[b] = { at: new Date().toISOString(), n: list.length };
+    await env.DASH_KV.put(CONSIGLI_STATUS_KEY, JSON.stringify(st));
+  } catch (_) {}
+}
+
+/** Both buckets as one list — mail first, it carries the deadlines. */
+async function readSuggested(env) {
+  const [mail, wa] = await Promise.all([readBucket(env, "mail"), readBucket(env, "wa")]);
+  return mail.concat(wa);
+}
+
+/** Split a merged list back into its buckets (this is what the browser posts back). */
+async function writeSuggested(env, list) {
+  const by = { mail: [], wa: [] };
+  for (const it of list || []) by[it && it.bucket === "mail" ? "mail" : "wa"].push(it);
+  await Promise.all([writeBucket(env, "mail", by.mail), writeBucket(env, "wa", by.wa)]);
+}
+
+/**
+ * Advice about mail you have already answered is noise: drop every mail-bucket item whose
+ * thread is no longer waiting for you. Only for accounts that actually answered this run,
+ * so a token failure never wipes good advice.
+ */
+async function pruneMailConsigli(env, snap) {
+  const pending = snap && snap.pending;
+  const accs = (((snap || {}).sources || {}).gmail || {}).accounts || [];
+  if (!Array.isArray(pending) || !accs.length) return 0;
+  const mail = await readBucket(env, "mail");
+  const keep = mail.filter((c) => !c.threadId || !c.acc || !accs.includes(c.acc) || pending.includes(c.threadId));
+  if (keep.length !== mail.length) await writeBucket(env, "mail", keep, false);
+  return mail.length - keep.length;
+}
+
 async function refreshAndStore(env) {
   const snap = await computeSnapshot(env);
   await env.DASH_KV.put(KV_KEY, JSON.stringify(snap));
+  await pruneMailConsigli(env, snap).catch(() => {});
   return snap;
 }
 
@@ -479,7 +544,7 @@ const UNAUTH_PAGE = `<!DOCTYPE html><html lang="it"><head><meta charset="UTF-8">
 <p>Apri la dashboard con il tuo link d'accesso, che include il token:<br><code>?t=IL_TUO_TOKEN</code></p></div></body></html>`;
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const url = new URL(request.url);
     const path = url.pathname;
 
@@ -519,8 +584,8 @@ export default {
           }
         } catch (_) {}
         try {
-          const [u, s] = await Promise.all([env.DASH_KV.get(TODO_USER_KEY), env.DASH_KV.get(TODO_SUG_KEY)]);
-          snap.todos = { user: u ? JSON.parse(u) : [], suggested: s ? JSON.parse(s) : [] };
+          const [u, sug] = await Promise.all([env.DASH_KV.get(TODO_USER_KEY), readSuggested(env)]);
+          snap.todos = { user: u ? JSON.parse(u) : [], suggested: sug };
         } catch (_) {}
         return json(snap);
       } catch (e) {
@@ -579,6 +644,21 @@ export default {
         let body;
         try { body = await request.json(); } catch (_) { return json({ error: "bad_request" }, 400); }
         const rec = Object.assign({}, body, { storedAt: Date.now() });
+        // Already answered? Then there is nothing left to handle. The recap flags a chat
+        // with mine:true when its last message is yours (the list preview shows the sent
+        // ticks), and can also send an explicit replied:["chat name", ...].
+        const repliedTo = new Set((Array.isArray(body.replied) ? body.replied : [])
+          .map((x) => String(x || "").trim().toLowerCase()));
+        const answered = (x) => !!(x && (x.mine === true || x.lastFromMe === true ||
+          repliedTo.has(String(x.chat || "").trim().toLowerCase())));
+        let dropped = 0;
+        for (const k of ["urgent", "leftUnread"]) {
+          if (!Array.isArray(rec[k])) continue;
+          const keep = rec[k].filter((x) => !answered(x));
+          dropped += rec[k].length - keep.length;
+          rec[k] = keep;
+        }
+        rec.repliedDropped = dropped;
         await env.DASH_KV.put(WA_KEY, JSON.stringify(rec));
         await env.DASH_KV.put(WA_DISMISS_KEY, "[]"); // a fresh recap starts with nothing dismissed
         return json({ ok: true });
@@ -593,11 +673,29 @@ export default {
         let body;
         try { body = await request.json(); } catch (_) { return json({ error: "bad_request" }, 400); }
         if (Array.isArray(body.user)) await env.DASH_KV.put(TODO_USER_KEY, JSON.stringify(body.user.slice(0, 200)));
-        if (Array.isArray(body.suggested)) await env.DASH_KV.put(TODO_SUG_KEY, JSON.stringify(body.suggested.slice(0, 100)));
+        if (Array.isArray(body.suggested)) {
+          // Three writers, one list. `bucket` replaces one half only (the WhatsApp recap
+          // posts bucket:"wa"); `merged:true` is the browser sending the whole list back
+          // after a delete or a promote; anything else is a legacy client and may only
+          // ever touch the "wa" half, never the cloud-generated one.
+          if (body.bucket === "mail" || body.bucket === "wa") await writeBucket(env, body.bucket, body.suggested);
+          else if (body.merged) await writeSuggested(env, body.suggested);
+          else await writeBucket(env, "wa", body.suggested);
+        }
         return json({ ok: true });
       }
-      const [u, s] = await Promise.all([env.DASH_KV.get(TODO_USER_KEY), env.DASH_KV.get(TODO_SUG_KEY)]);
-      return json({ user: u ? JSON.parse(u) : [], suggested: s ? JSON.parse(s) : [] });
+      const [u, sug] = await Promise.all([env.DASH_KV.get(TODO_USER_KEY), readSuggested(env)]);
+      return json({ user: u ? JSON.parse(u) : [], suggested: sug });
+    }
+
+    // Health check on the two Consigli buckets: who wrote last, and when. A "mail" entry
+    // that stops moving means the cloud routine is not running.
+    if (path === "/api/consigli") {
+      if (!isAuthed(request, env)) return json({ error: "unauthorized" }, 401);
+      const [st, mail, wa] = await Promise.all([
+        env.DASH_KV.get(CONSIGLI_STATUS_KEY), readBucket(env, "mail"), readBucket(env, "wa"),
+      ]);
+      return json({ lastWrite: st ? JSON.parse(st) : {}, counts: { mail: mail.length, wa: wa.length } });
     }
 
     if (path === "/api/wa-dismiss" && request.method === "POST") {
@@ -713,6 +811,9 @@ export default {
   },
 
   async scheduled(controller, env, ctx) {
+    // Mail + calendar only. The Consigli are written from outside: the mail half by a cloud
+    // Claude Code routine, the WhatsApp half by the local browser task. refreshAndStore
+    // still prunes advice about threads you have since answered.
     ctx.waitUntil(refreshAndStore(env).catch(() => {}));
   },
 };

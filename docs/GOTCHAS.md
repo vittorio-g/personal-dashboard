@@ -90,3 +90,41 @@ included — and never fall through to a destructive-ish default.
 before the day words and ate `9 - 12`, which the time patterns then matched *again*.
 Two rules fix a whole class of these bugs: match explicit day words first, and blank
 out every fragment you consume so nothing can be read twice.
+
+## A subscription is not an API key
+
+`@anthropic-ai/sdk` runs fine on `workerd` — but a Worker calling `api.anthropic.com`
+bills a pay-as-you-go API key. A Claude Pro/Max subscription covers **Claude Code**, not
+the API, and there is no way to make a Worker draw on it. If you want scheduled LLM work
+without a second bill, run it as a **scheduled Claude Code cloud routine** and let it talk
+to your Worker over plain HTTP. The Worker stays dependency-free.
+
+## A cloud routine inherits every connector you have
+
+Creating a routine through the API silently attached every MCP connector on the account —
+Gmail, Drive, Calendar, and a handful of travel sites. An agent whose whole job is reading
+untrusted e-mail should not also be holding your mailbox credentials: a hostile mail only
+has to talk it into a send. Clear them (`clear_mcp_connections: true`) and grant back only
+what the task genuinely needs — here, nothing but `curl`.
+
+## Two writers, one list, no marker
+
+The mail agent and the WhatsApp agent both filled the same `suggested` array, so whichever
+ran second erased the first. Splitting the KV key in two is only half the fix: the browser
+posts the *merged* list back when you delete an item, and the server cannot tell that from
+an old client posting only its own half. The rule that works: an explicit `bucket` replaces
+one half, `merged: true` splits the list by each item's own tag, and a request with neither
+may only touch the half that legacy clients used to own. Silent-by-default beats guessing.
+
+## "Replied" is a property of the thread, not the message
+
+A mail is handled when the **newest message in the thread** is yours — not when a message
+you sent exists somewhere in it. Reduce over the thread by `internalDate` and check `SENT`
+on the winner, and filter out `DRAFT` first or an unsent reply counts as an answer. The
+cheap call is `threads.get?format=minimal`: label ids and timestamps, no payload.
+
+## Prune advice only for accounts that answered
+
+Dropping every suggestion whose thread left the pending set looks right until one account's
+token expires: its threads vanish from the set and its perfectly good advice gets pruned.
+Scope the prune to the accounts that actually returned data this run.

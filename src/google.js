@@ -125,6 +125,19 @@ function classify(subject, from) {
 }
 
 /**
+ * True when the newest message of a thread was sent by us (drafts don't count).
+ * format=minimal keeps this to one cheap call per thread.
+ */
+async function answeredByMe(accessToken, threadId) {
+  if (!threadId) return false;
+  const th = await gapi(GMAIL_BASE + "/threads/" + encodeURIComponent(threadId) + "?format=minimal", accessToken);
+  const msgs = (th.messages || []).filter((m) => !(m.labelIds || []).includes("DRAFT"));
+  if (!msgs.length) return false;
+  const last = msgs.reduce((a, b) => (Number(b.internalDate || 0) >= Number(a.internalDate || 0) ? b : a));
+  return (last.labelIds || []).includes("SENT");
+}
+
+/**
  * Gmail snapshot for one account.
  * Returns { unread, unread24h, daGestire (count), items: [...] }.
  */
@@ -157,12 +170,17 @@ export async function gmailSnapshot(accessToken, accId, maxItems = 12) {
     seen.add(s.threadId);
     if (picks.length < maxItems) picks.push({ id: s.id, threadId: s.threadId });
   }
-  const daGestire = seen.size;
   const daGestireCapped = !!list.nextPageToken;
 
   const items = [];
+  const replied = [];
   for (const p of picks) {
     const id = p.id;
+    // Already answered? If the newest message of the thread is one of ours, the ball is in
+    // their court: drop it instead of nagging about something you have already handled.
+    try {
+      if (await answeredByMe(accessToken, p.threadId)) { replied.push(p.threadId); continue; }
+    } catch (_) { /* when in doubt, keep the thread */ }
     try {
       // format=full so we can surface the actual body (deadlines, asks, links),
       // not just Gmail's 200-char snippet.
@@ -182,7 +200,10 @@ export async function gmailSnapshot(accessToken, accId, maxItems = 12) {
       items.push({ id, threadId: p.threadId, subj: subject, from, acc: accId, when, status: c.status, badge: c.badge, important, starred, snippet, body, links });
     } catch (_) { /* skip this message */ }
   }
-  return { unread, unread24h, unread24hCapped, daGestire, daGestireCapped, items };
+  // Threads still waiting for you. Used to prune advice about mail you have since handled.
+  const pending = [...seen].filter((t) => !replied.includes(t));
+  const daGestire = pending.length;
+  return { unread, unread24h, unread24hCapped, daGestire, daGestireCapped, replied: replied.length, pending, items };
 }
 
 function offsetStr(date, timeZone) {
