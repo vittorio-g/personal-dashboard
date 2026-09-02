@@ -106,8 +106,13 @@ function extractLinks(text, max = 5) {
   return out;
 }
 
+// Mail written by a machine in reply to you: never an action, but occasionally carries a
+// date worth keeping ("back on the 2nd"), so it is buried rather than dropped.
+const AUTO_RE = /^\s*(risposta automatica|automatic reply|out of office|auto[- ]?reply|undeliverable|delivery status notification|mail delivery)/i;
+
 function classify(subject, from) {
   const t = ((subject || "") + " " + (from || "")).toLowerCase();
+  if (AUTO_RE.test(String(subject || ""))) return { status: "info", badge: "Automatica", auto: true };
   let status = "info";
   if (/sollecit|urgent|scadut|last reminder|final notice|overdue|entro oggi|entro domani/.test(t)) status = "critical";
   else if (/scad|deadline|entro il|rinnov|expir|renew|in scadenza|termina il|pagament|payment|fattur|invoice|conferma entro/.test(t)) status = "warning";
@@ -125,16 +130,20 @@ function classify(subject, from) {
 }
 
 /**
- * True when the newest message of a thread was sent by us (drafts don't count).
- * format=minimal keeps this to one cheap call per thread.
+ * One cheap metadata call per thread that answers both questions at once:
+ * have I already replied (newest non-draft message is mine), and if not, which message
+ * should the dashboard actually show — the newest one FROM someone else, not whichever
+ * message the search happened to return first.
  */
-async function answeredByMe(accessToken, threadId) {
-  if (!threadId) return false;
+async function threadState(accessToken, threadId) {
   const th = await gapi(GMAIL_BASE + "/threads/" + encodeURIComponent(threadId) + "?format=minimal", accessToken);
   const msgs = (th.messages || []).filter((m) => !(m.labelIds || []).includes("DRAFT"));
-  if (!msgs.length) return false;
-  const last = msgs.reduce((a, b) => (Number(b.internalDate || 0) >= Number(a.internalDate || 0) ? b : a));
-  return (last.labelIds || []).includes("SENT");
+  if (!msgs.length) return { answered: false, showId: null };
+  const newest = (a, b) => (Number(b.internalDate || 0) >= Number(a.internalDate || 0) ? b : a);
+  const last = msgs.reduce(newest);
+  if ((last.labelIds || []).includes("SENT")) return { answered: true, showId: null };
+  const incoming = msgs.filter((m) => !(m.labelIds || []).includes("SENT"));
+  return { answered: false, showId: (incoming.length ? incoming.reduce(newest) : last).id };
 }
 
 /**
@@ -158,29 +167,49 @@ export async function gmailSnapshot(accessToken, accId, maxItems = 12) {
     unread24hCapped = !!q24.nextPageToken;
   } catch (_) {}
 
-  // "Da gestire" = unread that Gmail marks important, or that you starred — recent, primary-ish.
-  const q = "is:unread (is:important OR is:starred) -category:promotions -category:social -category:forums newer_than:30d";
-  const list = await gapi(GMAIL_BASE + "/messages?maxResults=40&q=" + encodeURIComponent(q), accessToken);
+  // "Da gestire" = every unread that isn't bulk, over two months. Importance and stars are
+  // deliberately NOT a filter here: Gmail's importance marker misses plenty, and a thread
+  // you never starred can still be the one waiting on you. They come back below as a
+  // ranking boost instead, so widening the net doesn't cost us the signal.
+  const BASE = "-category:promotions -category:social -category:forums -category:updates newer_than:60d";
+  const list = await gapi(GMAIL_BASE + "/messages?maxResults=100&q=" + encodeURIComponent("is:unread " + BASE), accessToken);
   const stubs = list.messages || [];
-  // Dedupe by thread so reply chains ("Re:", "R:") count once.
+
+  // A second, narrow pass. With hundreds of unread threads the wide net alone would fill
+  // every slot with whatever arrived most recently, so important/starred threads keep
+  // guaranteed places at the front of the queue.
+  const prio = new Set();
+  try {
+    const p = await gapi(GMAIL_BASE + "/messages?maxResults=50&q=" +
+      encodeURIComponent("is:unread (is:important OR is:starred) " + BASE), accessToken);
+    for (const st of p.messages || []) prio.add(st.threadId);
+  } catch (_) { /* ranking nicety, not worth failing the snapshot over */ }
+
+  // Dedupe by thread so reply chains ("Re:", "R:") count once, priority threads first
+  // (Gmail's own recency order is preserved inside each group).
   const seen = new Set();
-  const picks = [];
-  for (const s of stubs) {
-    if (seen.has(s.threadId)) continue;
-    seen.add(s.threadId);
-    if (picks.length < maxItems) picks.push({ id: s.id, threadId: s.threadId });
+  const order = [];
+  for (const st of stubs) {
+    if (seen.has(st.threadId)) continue;
+    seen.add(st.threadId);
+    order.push(st.threadId);
   }
+  order.sort((a, b) => (prio.has(b) ? 1 : 0) - (prio.has(a) ? 1 : 0));
+  const picks = order.slice(0, maxItems).map((t) => ({ threadId: t }));
   const daGestireCapped = !!list.nextPageToken;
 
   const items = [];
   const replied = [];
   for (const p of picks) {
-    const id = p.id;
     // Already answered? If the newest message of the thread is one of ours, the ball is in
     // their court: drop it instead of nagging about something you have already handled.
+    let id;
     try {
-      if (await answeredByMe(accessToken, p.threadId)) { replied.push(p.threadId); continue; }
+      const st = await threadState(accessToken, p.threadId);
+      if (st.answered) { replied.push(p.threadId); continue; }
+      id = st.showId;
     } catch (_) { /* when in doubt, keep the thread */ }
+    if (!id) continue;
     try {
       // format=full so we can surface the actual body (deadlines, asks, links),
       // not just Gmail's 200-char snippet.
@@ -192,18 +221,18 @@ export async function gmailSnapshot(accessToken, accId, maxItems = 12) {
       const important = (msg.labelIds || []).includes("IMPORTANT");
       const starred = (msg.labelIds || []).includes("STARRED");
       const c = classify(subject, from);
-      if (starred && c.status === "info") c.status = "warning";
+      if (starred && c.status === "info" && !c.auto) c.status = "warning";
       const snippet = decodeEntities(msg.snippet).slice(0, 200);
       const raw = extractBody(msg.payload);
       const body = decodeEntities(raw).slice(0, 1500);
       const links = extractLinks(raw);
-      items.push({ id, threadId: p.threadId, subj: subject, from, acc: accId, when, status: c.status, badge: c.badge, important, starred, snippet, body, links });
+      items.push({ id, threadId: p.threadId, subj: subject, from, acc: accId, when, status: c.status, badge: c.badge, auto: !!c.auto, important, starred, snippet, body, links });
     } catch (_) { /* skip this message */ }
   }
   // Threads still waiting for you. Used to prune advice about mail you have since handled.
   const pending = [...seen].filter((t) => !replied.includes(t));
   const daGestire = pending.length;
-  return { unread, unread24h, unread24hCapped, daGestire, daGestireCapped, replied: replied.length, pending, items };
+  return { unread, unread24h, unread24hCapped, daGestire, daGestireCapped, replied: replied.length, pending, items, picked: picks.length };
 }
 
 function offsetStr(date, timeZone) {

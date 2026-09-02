@@ -128,3 +128,34 @@ cheap call is `threads.get?format=minimal`: label ids and timestamps, no payload
 Dropping every suggestion whose thread left the pending set looks right until one account's
 token expires: its threads vanish from the set and its perfectly good advice gets pruned.
 Scope the prune to the accounts that actually returned data this run.
+
+## Gmail's "important" is a guess, and a bad filter
+
+Gating the to-handle list on `is:important OR is:starred` looks like a cheap relevance
+filter. It is really a cheap *blindness*: Gmail's marker misses plenty, and a thread you
+never starred can still be the one waiting on you. Two months of archive turned up a
+funder's reply that unblocked a whole report, sitting unread because nothing had flagged it.
+
+Widen the query and rank instead — but then the marker stops discriminating in the other
+direction, because Gmail applies it generously: with the gate removed, nearly every result
+came back `important`. Weight a star (something the user chose) above it, and give robot
+replies a large penalty or the top of the list fills with "Out of Office".
+
+## `-category:updates` is what actually removes the noise
+
+Shipping notices, bank authorisations, password resets and social notifications all live in
+Gmail's `updates` category. Excluding promotions/social/forums but not updates leaves the
+loudest bucket in place — it just stays hidden while an importance filter is doing the work.
+
+## Show the newest incoming message, not the search hit
+
+`messages.list` returns whichever message matched. In a thread with several unread messages
+that is often not the latest one, so the dashboard quotes stale text. Read the thread once
+with `format=minimal`, take the newest non-draft message that isn't `SENT`, and fetch that
+one in full — the same call also answers "have I already replied".
+
+## Subrequests are a per-request budget, not a per-account one
+
+A Worker may make 50 subrequests per request on the free plan. Two Gmail calls per opened
+thread adds up fast, and a per-account cap multiplies by the number of accounts. Share one
+budget across all accounts, or a second working account silently breaks the refresh.

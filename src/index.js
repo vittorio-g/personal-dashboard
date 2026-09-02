@@ -18,6 +18,13 @@ const WA_GROUPS_READ_KEY = "wa_groups_read";
 const WA_INBOX_KEY = "wa_inbox";
 const WA_SEEN_KEY = "wa_seen_ids";
 
+// How many threads we open per refresh, across ALL accounts, and how many rows the page
+// shows. Each opened thread costs two Gmail calls, and a Worker request may make at most
+// 50 subrequests on the free plan — hence a shared budget rather than a per-account one.
+// On a paid plan (1000 subrequests) this can go up a lot.
+const PICK_BUDGET = 12;
+const MAIL_SHOWN = 12;
+
 const GRAPH = "https://graph.facebook.com/v21.0";
 
 /** Constant-time-ish compare of the X-Hub-Signature-256 header against the raw body. */
@@ -390,6 +397,7 @@ async function computeSnapshot(env) {
 
   let unread = 0, unread24h = 0, daGestire = 0, cap24 = false, capDG = false;
   let mail = [], timed = [], allday = [], pending = [], repliedN = 0;
+  let pickBudget = PICK_BUDGET;
   const gmailAccs = [], calAccs = [], errors = [];
 
   if (!clientId || !clientSecret) {
@@ -406,7 +414,8 @@ async function computeSnapshot(env) {
     } catch (e) { errors.push(acc.id + ":auth"); continue; }
 
     try {
-      const g = await gmailSnapshot(token, acc.id);
+      const g = await gmailSnapshot(token, acc.id, Math.max(0, pickBudget));
+      pickBudget -= g.picked || 0;
       unread += g.unread; unread24h += g.unread24h; daGestire += g.daGestire;
       cap24 = cap24 || g.unread24hCapped; capDG = capDG || g.daGestireCapped;
       pending = pending.concat(g.pending || []);
@@ -425,13 +434,20 @@ async function computeSnapshot(env) {
     }
   }
 
+  // Gmail's "important" flag and your stars are a boost, not a gate: they lift a thread
+  // within the list rather than deciding whether it shows up at all. That way widening
+  // the query doesn't bury the things you had actually marked.
+  // A star is something you chose; Gmail's "important" is a guess it applies generously,
+  // so it counts for less. Robot replies sink regardless of what else they carry.
   const rank = { critical: 0, warning: 1, info: 2 };
+  const score = (m) =>
+    (rank[m.status] ?? 3) * 2 - (m.starred ? 2 : 0) - (m.important ? 1 : 0) + (m.auto ? 6 : 0);
   mail.sort((a, b) => {
-    const r = (rank[a.status] ?? 3) - (rank[b.status] ?? 3);
-    if (r) return r;
+    const d = score(a) - score(b);
+    if (d) return d;
     return new Date(b.when || 0) - new Date(a.when || 0);
   });
-  mail = mail.slice(0, 6);
+  mail = mail.slice(0, MAIL_SHOWN);
   timed.sort((a, b) => toMin(a.s) - toMin(b.s));
 
   const snap = {
