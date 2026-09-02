@@ -13,6 +13,7 @@ const TODO_SUG_KEY = "todos_suggested";        // bucket "wa"
 const TODO_SUG_MAIL_KEY = "todos_suggested_mail"; // bucket "mail"
 const TODO_SUG_SWEEP_KEY = "todos_suggested_sweep"; // bucket "sweep" - manual deep passes
 const CONSIGLI_STATUS_KEY = "consigli_status";
+const MAIL_PIN_KEY = "mail_pinned";
 const WA_DISMISS_KEY = "wa_dismissed";
 const WA_GROUPS_READ_KEY = "wa_groups_read";
 const WA_INBOX_KEY = "wa_inbox";
@@ -398,6 +399,11 @@ async function computeSnapshot(env) {
   let unread = 0, unread24h = 0, daGestire = 0, cap24 = false, capDG = false;
   let mail = [], timed = [], allday = [], pending = [], repliedN = 0;
   let pickBudget = PICK_BUDGET;
+  let pinned = [];
+  try {
+    const raw = await env.DASH_KV.get(MAIL_PIN_KEY);
+    if (raw) pinned = JSON.parse(raw) || [];
+  } catch (_) {}
   const gmailAccs = [], calAccs = [], errors = [];
 
   if (!clientId || !clientSecret) {
@@ -414,7 +420,7 @@ async function computeSnapshot(env) {
     } catch (e) { errors.push(acc.id + ":auth"); continue; }
 
     try {
-      const g = await gmailSnapshot(token, acc.id, Math.max(0, pickBudget));
+      const g = await gmailSnapshot(token, acc.id, Math.max(0, pickBudget), pinned);
       pickBudget -= g.picked || 0;
       unread += g.unread; unread24h += g.unread24h; daGestire += g.daGestire;
       cap24 = cap24 || g.unread24hCapped; capDG = capDG || g.daGestireCapped;
@@ -443,6 +449,9 @@ async function computeSnapshot(env) {
   const score = (m) =>
     (rank[m.status] ?? 3) * 2 - (m.starred ? 2 : 0) - (m.important ? 1 : 0) + (m.auto ? 6 : 0);
   mail.sort((a, b) => {
+    // A pin outranks everything: it is an explicit instruction, not a heuristic.
+    const p = (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0);
+    if (p) return p;
     const d = score(a) - score(b);
     if (d) return d;
     return new Date(b.when || 0) - new Date(a.when || 0);
@@ -537,15 +546,32 @@ async function readSuggested(env) {
   return [].concat(...parts);
 }
 
-/** Split a merged list back into its buckets (this is what the browser posts back). */
-async function writeSuggested(env, list) {
-  const by = {};
-  for (const b of BUCKETS) by[b] = [];
-  for (const it of list || []) by[bucketOf(it)].push(it);
-  await Promise.all(BUCKETS.map((b) => writeBucket(env, b, by[b], false)));
-  const counts = {};
-  for (const b of BUCKETS) counts[b] = by[b].length;
-  await stampWrite(env, counts);
+/**
+ * Drop specific items from every bucket. This is the ONLY way the browser is allowed to
+ * change the Consigli, and it is deliberately a removal rather than a write-back: a page
+ * left open for hours holds a stale copy of the list, and letting it post that copy back
+ * silently deleted everything an agent had written in the meantime.
+ * Entries may be {id, text} or a bare id — items from the agents don't all carry an id.
+ */
+async function removeSuggested(env, entries) {
+  const ids = new Set(), texts = new Set();
+  for (const e of entries || []) {
+    if (e && typeof e === "object") {
+      if (e.id) ids.add(String(e.id));
+      if (e.text) texts.add(String(e.text));
+    } else if (e) ids.add(String(e));
+  }
+  if (!ids.size && !texts.size) return 0;
+  let removed = 0;
+  for (const b of BUCKETS) {
+    const cur = await readBucket(env, b);
+    const keep = cur.filter((x) => !(ids.has(String(x.id)) || texts.has(String(x.text))));
+    if (keep.length !== cur.length) {
+      removed += cur.length - keep.length;
+      await writeBucket(env, b, keep, false);
+    }
+  }
+  return removed;
 }
 
 /**
@@ -672,6 +698,38 @@ export default {
       }
     }
 
+    // Keep a thread at the top of "da gestire" until told otherwise. A pin also forces the
+    // thread to be opened on every refresh, and survives the already-answered filter.
+    if (path === "/api/mail/pin" && request.method === "POST") {
+      if (!isAuthed(request, env)) return json({ error: "unauthorized" }, 401);
+      let body;
+      try { body = await request.json(); } catch (_) { return json({ error: "bad_request" }, 400); }
+      const tid = String((body && body.threadId) || "").trim();
+      if (!tid) return json({ error: "bad_request" }, 400);
+      let list = [];
+      try {
+        const raw = await env.DASH_KV.get(MAIL_PIN_KEY);
+        if (raw) list = JSON.parse(raw) || [];
+      } catch (_) {}
+      list = list.filter((t) => t !== tid);
+      if (body.pinned !== false) list.unshift(tid);
+      list = list.slice(0, 10);
+      await env.DASH_KV.put(MAIL_PIN_KEY, JSON.stringify(list));
+      // Keep the cached snapshot in step so the row moves without waiting for a refresh.
+      try {
+        const cached = await env.DASH_KV.get(KV_KEY);
+        if (cached) {
+          const snap = JSON.parse(cached);
+          if (Array.isArray(snap.mail)) {
+            for (const m of snap.mail) if (m.threadId === tid) m.pinned = body.pinned !== false;
+            snap.mail.sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0));
+            await env.DASH_KV.put(KV_KEY, JSON.stringify(snap));
+          }
+        }
+      } catch (_) {}
+      return json({ ok: true, pinned: list });
+    }
+
     if (path === "/api/whatsapp") {
       if (!isAuthed(request, env)) return json({ error: "unauthorized" }, 401);
       if (request.method === "POST") {
@@ -707,16 +765,16 @@ export default {
         let body;
         try { body = await request.json(); } catch (_) { return json({ error: "bad_request" }, 400); }
         if (Array.isArray(body.user)) await env.DASH_KV.put(TODO_USER_KEY, JSON.stringify(body.user.slice(0, 200)));
+        // The browser only ever removes; agents replace their own bucket by name.
+        let removed = 0;
+        if (Array.isArray(body.removeSuggested)) removed = await removeSuggested(env, body.removeSuggested);
         if (Array.isArray(body.suggested)) {
-          // Three writers, one list. `bucket` replaces one half only (the WhatsApp recap
-          // posts bucket:"wa"); `merged:true` is the browser sending the whole list back
-          // after a delete or a promote; anything else is a legacy client and may only
-          // ever touch the "wa" half, never the cloud-generated one.
           if (BUCKETS.includes(body.bucket)) await writeBucket(env, body.bucket, body.suggested);
-          else if (body.merged) await writeSuggested(env, body.suggested);
-          else await writeBucket(env, "wa", body.suggested);
+          // `merged` was the old browser write-back. It is ignored now: a page holding an
+          // hours-old list must never be able to erase what an agent wrote since.
+          else if (!body.merged) await writeBucket(env, "wa", body.suggested);
         }
-        return json({ ok: true });
+        return json({ ok: true, removed });
       }
       const [u, sug] = await Promise.all([env.DASH_KV.get(TODO_USER_KEY), readSuggested(env)]);
       return json({ user: u ? JSON.parse(u) : [], suggested: sug });

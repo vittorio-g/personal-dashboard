@@ -159,3 +159,26 @@ one in full — the same call also answers "have I already replied".
 A Worker may make 50 subrequests per request on the free plan. Two Gmail calls per opened
 thread adds up fast, and a per-account cap multiplies by the number of accounts. Share one
 budget across all accounts, or a second working account silently breaks the refresh.
+
+## A long-open page is a stale writer
+
+The browser posted the whole advice list back on every to-do change, so the server could
+split it into buckets again. It works until the page has been open for a while: an agent
+writes seventeen new items, the user ticks an unrelated to-do, and the page helpfully
+posts its hours-old copy — deleting all seventeen. No error, no conflict, nothing in the
+log except three buckets stamped at the same instant with `n: 0`.
+
+The fix is not a version check, it is narrowing the verb. The page's only real intent is
+"remove this one", so that is all it may send (`removeSuggested: [{id, text}]`). Writers
+that own a bucket still replace it by name. The old write-back field is accepted and
+ignored, so a cached page cannot destroy anything either.
+
+Match removals on id **or** text: items written by an LLM agent don't reliably carry an id.
+
+## Pinning has to survive the ranking, not ride on it
+
+"Keep this at the top" is worthless if the item can fall out of the set entirely. With a
+wide query and a per-refresh budget of opened threads, a pinned thread has to be forced
+into the picks, added even when the query no longer returns it at all (read, or out of the
+date window), and exempted from the already-answered filter. A pin is an instruction; every
+heuristic in the pipeline has to yield to it.

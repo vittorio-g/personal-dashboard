@@ -150,7 +150,7 @@ async function threadState(accessToken, threadId) {
  * Gmail snapshot for one account.
  * Returns { unread, unread24h, daGestire (count), items: [...] }.
  */
-export async function gmailSnapshot(accessToken, accId, maxItems = 12) {
+export async function gmailSnapshot(accessToken, accId, maxItems = 12, pinned = []) {
   // Total unread from the UNREAD system label.
   let unread = 0;
   try {
@@ -194,7 +194,17 @@ export async function gmailSnapshot(accessToken, accId, maxItems = 12) {
     seen.add(st.threadId);
     order.push(st.threadId);
   }
-  order.sort((a, b) => (prio.has(b) ? 1 : 0) - (prio.has(a) ? 1 : 0));
+  // A pinned thread must be opened even when it would never survive the ranking, or on a
+  // busy day the one thing you asked to keep in sight is the one that drops off.
+  const pin = new Set(pinned || []);
+  order.sort((a, b) => {
+    const p = (pin.has(b) ? 2 : 0) - (pin.has(a) ? 2 : 0);
+    if (p) return p;
+    return (prio.has(b) ? 1 : 0) - (prio.has(a) ? 1 : 0);
+  });
+  // Pinned threads that the query didn't return at all (read, or older than the window)
+  // are added by hand: pinning means "keep showing me this", full stop.
+  for (const t of pin) if (!seen.has(t)) { seen.add(t); order.unshift(t); }
   const picks = order.slice(0, maxItems).map((t) => ({ threadId: t }));
   const daGestireCapped = !!list.nextPageToken;
 
@@ -206,7 +216,7 @@ export async function gmailSnapshot(accessToken, accId, maxItems = 12) {
     let id;
     try {
       const st = await threadState(accessToken, p.threadId);
-      if (st.answered) { replied.push(p.threadId); continue; }
+      if (st.answered && !pin.has(p.threadId)) { replied.push(p.threadId); continue; }
       id = st.showId;
     } catch (_) { /* when in doubt, keep the thread */ }
     if (!id) continue;
@@ -226,7 +236,7 @@ export async function gmailSnapshot(accessToken, accId, maxItems = 12) {
       const raw = extractBody(msg.payload);
       const body = decodeEntities(raw).slice(0, 1500);
       const links = extractLinks(raw);
-      items.push({ id, threadId: p.threadId, subj: subject, from, acc: accId, when, status: c.status, badge: c.badge, auto: !!c.auto, important, starred, snippet, body, links });
+      items.push({ id, threadId: p.threadId, subj: subject, from, acc: accId, when, status: c.status, badge: c.badge, auto: !!c.auto, pinned: pin.has(p.threadId), important, starred, snippet, body, links });
     } catch (_) { /* skip this message */ }
   }
   // Threads still waiting for you. Used to prune advice about mail you have since handled.
