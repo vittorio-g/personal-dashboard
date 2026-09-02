@@ -11,6 +11,7 @@ const TODO_USER_KEY = "todos_user";
 // "wa" by the local WhatsApp recap task. Neither can clobber the other.
 const TODO_SUG_KEY = "todos_suggested";        // bucket "wa"
 const TODO_SUG_MAIL_KEY = "todos_suggested_mail"; // bucket "mail"
+const TODO_SUG_SWEEP_KEY = "todos_suggested_sweep"; // bucket "sweep" - manual deep passes
 const CONSIGLI_STATUS_KEY = "consigli_status";
 const WA_DISMISS_KEY = "wa_dismissed";
 const WA_GROUPS_READ_KEY = "wa_groups_read";
@@ -478,7 +479,11 @@ function notConfiguredSnapshot(now, warning) {
 
 // ---------- Consigli: two buckets ("mail" from the cloud, "wa" from the local recap) ----------
 
-const SUG_KEYS = { mail: TODO_SUG_MAIL_KEY, wa: TODO_SUG_KEY };
+// "sweep" is written by hand during a deep pass over the archive; no scheduled agent
+// owns it, so a one-off review is not wiped by the next cron.
+const SUG_KEYS = { mail: TODO_SUG_MAIL_KEY, wa: TODO_SUG_KEY, sweep: TODO_SUG_SWEEP_KEY };
+const BUCKETS = ["mail", "sweep", "wa"];
+const bucketOf = (x) => (x && BUCKETS.includes(x.bucket) ? x.bucket : "wa");
 
 async function readBucket(env, b) {
   let arr = [];
@@ -492,26 +497,39 @@ async function readBucket(env, b) {
 async function writeBucket(env, b, arr, stamp = true) {
   const list = (arr || []).slice(0, 100);
   await env.DASH_KV.put(SUG_KEYS[b], JSON.stringify(list));
-  if (!stamp) return; // a prune is not a fresh generation
+  if (stamp) await stampWrite(env, { [b]: list.length });
+}
+
+/**
+ * Record who wrote which bucket, and when. Takes every bucket of one write at once:
+ * stamping them separately means three read-modify-writes racing on the same key, and
+ * the last one to land silently drops the others' timestamps.
+ */
+async function stampWrite(env, counts) {
   try {
     const raw = await env.DASH_KV.get(CONSIGLI_STATUS_KEY);
     const st = raw ? JSON.parse(raw) : {};
-    st[b] = { at: new Date().toISOString(), n: list.length };
+    const at = new Date().toISOString();
+    for (const b of Object.keys(counts)) st[b] = { at, n: counts[b] };
     await env.DASH_KV.put(CONSIGLI_STATUS_KEY, JSON.stringify(st));
   } catch (_) {}
 }
 
-/** Both buckets as one list — mail first, it carries the deadlines. */
+/** Every bucket as one list — mail first, it carries the deadlines. */
 async function readSuggested(env) {
-  const [mail, wa] = await Promise.all([readBucket(env, "mail"), readBucket(env, "wa")]);
-  return mail.concat(wa);
+  const parts = await Promise.all(BUCKETS.map((b) => readBucket(env, b)));
+  return [].concat(...parts);
 }
 
 /** Split a merged list back into its buckets (this is what the browser posts back). */
 async function writeSuggested(env, list) {
-  const by = { mail: [], wa: [] };
-  for (const it of list || []) by[it && it.bucket === "mail" ? "mail" : "wa"].push(it);
-  await Promise.all([writeBucket(env, "mail", by.mail), writeBucket(env, "wa", by.wa)]);
+  const by = {};
+  for (const b of BUCKETS) by[b] = [];
+  for (const it of list || []) by[bucketOf(it)].push(it);
+  await Promise.all(BUCKETS.map((b) => writeBucket(env, b, by[b], false)));
+  const counts = {};
+  for (const b of BUCKETS) counts[b] = by[b].length;
+  await stampWrite(env, counts);
 }
 
 /**
@@ -678,7 +696,7 @@ export default {
           // posts bucket:"wa"); `merged:true` is the browser sending the whole list back
           // after a delete or a promote; anything else is a legacy client and may only
           // ever touch the "wa" half, never the cloud-generated one.
-          if (body.bucket === "mail" || body.bucket === "wa") await writeBucket(env, body.bucket, body.suggested);
+          if (BUCKETS.includes(body.bucket)) await writeBucket(env, body.bucket, body.suggested);
           else if (body.merged) await writeSuggested(env, body.suggested);
           else await writeBucket(env, "wa", body.suggested);
         }
@@ -692,10 +710,12 @@ export default {
     // that stops moving means the cloud routine is not running.
     if (path === "/api/consigli") {
       if (!isAuthed(request, env)) return json({ error: "unauthorized" }, 401);
-      const [st, mail, wa] = await Promise.all([
-        env.DASH_KV.get(CONSIGLI_STATUS_KEY), readBucket(env, "mail"), readBucket(env, "wa"),
+      const [st, ...lists] = await Promise.all([
+        env.DASH_KV.get(CONSIGLI_STATUS_KEY), ...BUCKETS.map((b) => readBucket(env, b)),
       ]);
-      return json({ lastWrite: st ? JSON.parse(st) : {}, counts: { mail: mail.length, wa: wa.length } });
+      const counts = {};
+      BUCKETS.forEach((b, i) => { counts[b] = lists[i].length; });
+      return json({ lastWrite: st ? JSON.parse(st) : {}, counts });
     }
 
     if (path === "/api/wa-dismiss" && request.method === "POST") {

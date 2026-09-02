@@ -26,7 +26,10 @@ would wipe the other's work. So each writes only its own half:
 { "bucket": "wa",   "suggested": [ ... ] }
 ```
 
-`GET /api/todos` returns the two merged, each item tagged with its `bucket`. The browser
+A third bucket, `sweep`, belongs to no scheduled agent: it is where a manual deep pass over
+the archive writes its findings, so a one-off review survives the next cron run.
+
+`GET /api/todos` returns them merged, each item tagged with its `bucket`. The browser
 posts the merged list back with `{"merged": true}` when you delete or promote something,
 and the Worker splits it again. A client that sends neither field may only ever touch
 `wa` — that way an old script cannot silently erase the cloud half. `GET /api/consigli`
