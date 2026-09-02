@@ -182,3 +182,14 @@ wide query and a per-refresh budget of opened threads, a pinned thread has to be
 into the picks, added even when the query no longer returns it at all (read, or out of the
 date window), and exempted from the already-answered filter. A pin is an instruction; every
 heuristic in the pipeline has to yield to it.
+
+## The whole page is one script tag
+
+An unescaped apostrophe in a UI string (`'Togli dall'alto'`) is a parse error, and because
+the dashboard ships as a single inline `<script>`, that one character stops *everything*:
+no mail, no agenda, no to-dos, no error visible on the page. The API was fine the whole
+time, which makes it look like the data broke rather than the markup.
+
+Deploying is not verifying. Extract the inline script and run `node --check` on it before
+`wrangler deploy`, and afterwards open the deployed page and assert on the rendered DOM —
+`document.querySelectorAll('#mailRows li').length` is proof; a 200 on `/api/data` is not.

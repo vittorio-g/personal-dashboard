@@ -489,7 +489,7 @@
         m.pinned = want;
         li.classList.toggle('pinned', want);
         btn.classList.toggle('on', want);
-        btn.title = want ? 'Togli dall'alto' : 'Tieni in cima';
+        btn.title = want ? 'Non tenere in cima' : 'Tieni in cima';
         toast(want ? 'Tenuta in cima' : 'Non più in cima');
         if (want && li.parentNode && li.parentNode.firstChild !== li) li.parentNode.insertBefore(li, li.parentNode.firstChild);
       })
@@ -539,7 +539,7 @@
       var actions = m.id
         ? '<div class="rowact">'+
             '<a class="actbtn" href="https://mail.google.com/mail/u/0/#all/'+encodeURIComponent(m.threadId || m.id)+'" target="_blank" rel="noopener" title="Apri in Gmail" aria-label="Apri in Gmail">'+EXTLINK+'</a>'+
-            '<button class="actbtn'+(m.pinned ? ' on' : '')+'" data-act="pin" title="'+(m.pinned ? 'Togli dall'alto' : 'Tieni in cima')+'" aria-label="Tieni in cima">'+PIN+'</button>'+
+            '<button class="actbtn'+(m.pinned ? ' on' : '')+'" data-act="pin" title="'+(m.pinned ? 'Non tenere in cima' : 'Tieni in cima')+'" aria-label="Tieni in cima">'+PIN+'</button>'+
             '<button class="actbtn" data-act="read" title="Segna come letta" aria-label="Segna come letta">'+CHECK+'</button>'+
             '<button class="actbtn" data-act="archive" title="Archivia" aria-label="Archivia">'+ARCH+'</button>'+
           '</div>'
