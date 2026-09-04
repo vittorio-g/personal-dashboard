@@ -125,7 +125,9 @@ TEMP FILES: always write payloads to these fixed paths, never a per-session temp
 
 === PART 1 - the recap ===
 Use the whatsapp-recap skill (skills/whatsapp-recap/):
-1. Open web.whatsapp.com. If a login QR appears, STOP and report it.
+1. FIRST call tabs_context and note which tabs were already open - the cleanup at the end
+   must close only what this run created. Then open web.whatsapp.com. If a login QR
+   appears, STOP and report it.
 2. Inject helpers.js.
 3. Take one screenshot and call window.setScale(<screenshot width>) - the screenshot/CSS
    pixel ratio changes with the window size; never hardcode it.
@@ -161,8 +163,16 @@ Use the whatsapp-recap skill (skills/whatsapp-recap/):
    https://<WORKER>/api/todos?t=<TOKEN>. The bucket field is MANDATORY. Never send "user".
 4. Nothing urgent? Send {"bucket":"wa","suggested":[]} - emptying your half is correct.
 
+=== PART 3 - clean up (always, even if the run broke halfway) ===
+Close with tabs_close_mcp every tab this run opened, and only those, comparing against the
+list noted in step 1: never close a tab the user already had open - they may be working in
+it. Chrome removes the tab group by itself once its last tab is gone, so there is nothing
+else to clear. Closing the tab does NOT unlink WhatsApp Web: the phone pairing survives and
+the next run loads straight in. Do this even if the recap failed partway - don't leave
+orphan tabs behind.
+
 Constraints: send no WhatsApp messages or e-mails, mark nothing as read through the API,
-never open a 1:1 chat.
+never open a 1:1 chat, never leave a WhatsApp group and never delete a chat.
 ```
 
 ## Why not just call an LLM from the Worker
