@@ -79,7 +79,7 @@ Full walkthrough:
 | `GET /api/data` | cached snapshot · `POST` or `?fresh=1` recomputes |
 | `POST /api/mail/action` | mark read / archive / trash a thread |
 | `POST /api/mail/pin` | keep a thread at the top of the list |
-| `POST /api/mail/draft` | store a raw RFC 822 message as a Gmail **draft** (never sends) |
+| `POST /api/mail/draft` | store a raw RFC 822 message as a Gmail **draft** (never sends) · `?id=` rewrites an existing draft |
 | `GET,POST /api/todos` | `{user, suggested}` lists · `POST {bucket}` writes one half |
 | `GET /api/consigli` | which bucket was written last, and when |
 | `GET,POST /api/whatsapp` | the recap payload |

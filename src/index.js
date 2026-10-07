@@ -702,7 +702,7 @@ export default {
     // thread to be opened on every refresh, and survives the already-answered filter.
     // Store a ready-made RFC 822 message as a Gmail DRAFT (body = the raw message). Lets a
     // local script attach real files, which the chat connector cannot do. Draft only: there
-    // is deliberately no way to send from here.
+    // is deliberately no way to send from here. With ?id=<draftId> it rewrites that draft.
     if (path === "/api/mail/draft" && request.method === "POST") {
       if (!isAuthed(request, env)) return json({ error: "unauthorized" }, 401);
       const acc = url.searchParams.get("acc") || "personale";
@@ -711,7 +711,7 @@ export default {
       if (raw.byteLength > 20 * 1024 * 1024) return json({ error: "too_large" }, 413);
       try {
         const token = await tokenForAccount(env, acc);
-        const d = await createDraftRaw(token, raw);
+        const d = await createDraftRaw(token, raw, url.searchParams.get("id") || "");
         const m = d.message || {};
         return json({ ok: true, draftId: d.id, messageId: m.id, threadId: m.threadId });
       } catch (e) {

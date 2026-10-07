@@ -364,9 +364,13 @@ export async function modifyThread(accessToken, threadId, { add = [], remove = [
  * attachment works); this only stores it under Drafts and can never send it.
  * Requires the gmail.modify scope.
  */
-export async function createDraftRaw(accessToken, rfc822) {
-  const r = await fetch("https://gmail.googleapis.com/upload/gmail/v1/users/me/drafts?uploadType=media", {
-    method: "POST",
+export async function createDraftRaw(accessToken, rfc822, draftId) {
+  // With a draft id the same draft is rewritten in place, so revising a message never
+  // leaves a stale twin behind in Drafts.
+  const base = "https://gmail.googleapis.com/upload/gmail/v1/users/me/drafts";
+  const target = draftId ? base + "/" + encodeURIComponent(draftId) : base;
+  const r = await fetch(target + "?uploadType=media", {
+    method: draftId ? "PUT" : "POST",
     headers: { authorization: "Bearer " + accessToken, "content-type": "message/rfc822" },
     body: rfc822,
   });
