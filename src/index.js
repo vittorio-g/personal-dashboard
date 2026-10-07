@@ -1,7 +1,7 @@
 // Personal dashboard Worker — serves the page + a live /api/data backed by
 // Gmail + Google Calendar (read-only OAuth), cached in KV and refreshed on cron.
 import DASHBOARD_HTML from "../public/dashboard.html";
-import { getAccessToken, gmailSnapshot, calendarSnapshot, modifyMessage, modifyThread, trashMessage, createEvent } from "./google.js";
+import { getAccessToken, gmailSnapshot, calendarSnapshot, modifyMessage, modifyThread, trashMessage, createEvent, createDraftRaw } from "./google.js";
 
 const KV_KEY = "snapshot";
 const WA_KEY = "whatsapp";
@@ -700,6 +700,27 @@ export default {
 
     // Keep a thread at the top of "da gestire" until told otherwise. A pin also forces the
     // thread to be opened on every refresh, and survives the already-answered filter.
+    // Store a ready-made RFC 822 message as a Gmail DRAFT (body = the raw message). Lets a
+    // local script attach real files, which the chat connector cannot do. Draft only: there
+    // is deliberately no way to send from here.
+    if (path === "/api/mail/draft" && request.method === "POST") {
+      if (!isAuthed(request, env)) return json({ error: "unauthorized" }, 401);
+      const acc = url.searchParams.get("acc") || "personale";
+      const raw = await request.arrayBuffer();
+      if (!raw.byteLength) return json({ error: "bad_request" }, 400);
+      if (raw.byteLength > 20 * 1024 * 1024) return json({ error: "too_large" }, 413);
+      try {
+        const token = await tokenForAccount(env, acc);
+        const d = await createDraftRaw(token, raw);
+        const m = d.message || {};
+        return json({ ok: true, draftId: d.id, messageId: m.id, threadId: m.threadId });
+      } catch (e) {
+        const msg = String((e && e.message) || e);
+        const scope = /gapi_403|insufficient|scope|ACCESS_TOKEN_SCOPE/i.test(msg);
+        return json({ error: "draft_failed", detail: msg, needScope: scope }, scope ? 403 : 500);
+      }
+    }
+
     if (path === "/api/mail/pin" && request.method === "POST") {
       if (!isAuthed(request, env)) return json({ error: "unauthorized" }, 401);
       let body;

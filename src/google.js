@@ -359,6 +359,24 @@ export async function modifyThread(accessToken, threadId, { add = [], remove = [
   return r.json();
 }
 
+/**
+ * Create a Gmail DRAFT from a complete RFC 822 message. The caller builds the MIME (so any
+ * attachment works); this only stores it under Drafts and can never send it.
+ * Requires the gmail.modify scope.
+ */
+export async function createDraftRaw(accessToken, rfc822) {
+  const r = await fetch("https://gmail.googleapis.com/upload/gmail/v1/users/me/drafts?uploadType=media", {
+    method: "POST",
+    headers: { authorization: "Bearer " + accessToken, "content-type": "message/rfc822" },
+    body: rfc822,
+  });
+  if (!r.ok) {
+    const t = await r.text().catch(() => "");
+    throw new Error("gapi_" + r.status + ":" + t.slice(0, 300));
+  }
+  return r.json();
+}
+
 /** Move a message to Trash. Requires the gmail.modify scope. */
 export async function trashMessage(accessToken, id) {
   const r = await fetch(GMAIL_BASE + "/messages/" + encodeURIComponent(id) + "/trash", {

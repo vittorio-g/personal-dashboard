@@ -193,3 +193,19 @@ time, which makes it look like the data broke rather than the markup.
 Deploying is not verifying. Extract the inline script and run `node --check` on it before
 `wrangler deploy`, and afterwards open the deployed page and assert on the rendered DOM —
 `document.querySelectorAll('#mailRows li').length` is proof; a 200 on `/api/data` is not.
+
+## A draft with real attachments needs its own door
+
+Chat-side mail connectors take attachments as base64 pasted into the call, which stops being
+practical at the first PDF. The Worker already holds a `gmail.modify` token, so it gets one
+small endpoint: `POST /api/mail/draft` with the body a complete RFC 822 message, relayed to
+Gmail's `upload/.../drafts?uploadType=media`. Build the MIME locally with a real mail library
+(headers, UTF-8 subject, base64 wrapping are all easy to get subtly wrong by hand) and let
+the Worker do nothing but authenticate and forward.
+
+Keep it draft-only on purpose. A token-gated endpoint that can *send* mail is a different
+risk class from one that can leave a draft for a human to read and send.
+
+Then verify what Gmail actually stored: fetch the draft back raw and compare each
+attachment's hash with the file you meant to attach. The connector's draft view does not
+list attachments at all, so "created" tells you nothing about them.
