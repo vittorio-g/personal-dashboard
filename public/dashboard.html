@@ -241,6 +241,32 @@
   .wa-item.done { opacity: .5; }
   .wa-item.done b, .wa-item.done .wa-text { text-decoration: line-through; }
 
+  /* ---------- Consegne ---------- */
+  .pk { margin-top: 16px; }
+  .pk-body { padding: 10px 12px 12px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px 22px; align-items: start; }
+  @media (max-width: 900px){ .pk-body { grid-template-columns: 1fr; } }
+  .pk-sec { min-width: 0; }
+  .pk-wide { grid-column: 1 / -1; }
+  .pk-h { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; font-size: .78rem; font-weight: 700; color: var(--text-secondary); margin: 4px 8px 2px; }
+  .pk-h small { font-weight: 500; color: var(--muted); margin-left: 6px; }
+  .pk-h button, .pk-foot button { appearance: none; border: none; background: none; color: var(--acc-personale); cursor: pointer; font-size: .74rem; padding: 0; white-space: nowrap; }
+  .pk-h button:hover, .pk-foot button:hover { text-decoration: underline; }
+  .pk-h button[disabled] { opacity: .5; cursor: default; }
+  .pk-body ul.rows { padding: 0; }
+  .pk-none { font-size: .82rem; color: var(--muted); padding: 8px 8px 6px; }
+  .pk-cb { appearance: none; flex: none; width: 24px; height: 24px; margin-top: 2px; padding: 0; border: 1.8px solid var(--muted); border-radius: 7px; background: none; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; color: transparent; }
+  .pk-cb:hover { border-color: var(--good); color: color-mix(in srgb, var(--good) 60%, transparent); }
+  .pk-cb:focus-visible { outline: 2px solid var(--acc-personale); outline-offset: 2px; }
+  .pk-cb[disabled] { opacity: .5; cursor: default; }
+  .pk-cb svg { width: 15px; height: 15px; }
+  li.row.done .pk-cb { background: var(--good); border-color: var(--good); color: #fff; }
+  li.row.done .rowmain { opacity: .5; }
+  li.row.done .subj { text-decoration: line-through; }
+  .rowmain .subj small { font-weight: 500; color: var(--muted); white-space: nowrap; }
+  .badge.good { background: color-mix(in srgb, var(--good) 15%, transparent); color: var(--good); }
+  :root[data-theme="dark"] .badge.good { color: #3ec13e; }
+  .pk-foot { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; padding: 9px 8px 0; border-top: 1px dashed var(--border); font-size: .74rem; color: var(--muted); }
+
   /* ---------- To-do ---------- */
   .todo { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 22px; }
   @media (max-width: 780px){ .todo { grid-template-columns: 1fr; } }
@@ -366,6 +392,18 @@
     </section>
 
   </div>
+
+  <!-- CONSEGNE -->
+  <section class="panel pk" id="pkPanel">
+    <div class="phead">
+      <h2>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8 12 3 3 8v8l9 5 9-5V8Z"></path><path d="m3 8 9 5 9-5M12 13v8"></path></svg>
+        Consegne
+      </h2>
+      <span class="tag" id="pkMeta">—</span>
+    </div>
+    <div class="pk-body" id="pkBody"><div class="pk-none pk-wide">Leggo le mail di spedizione…</div></div>
+  </section>
 
   <!-- WHATSAPP -->
   <section class="panel wa" id="waPanel" hidden>
@@ -799,6 +837,231 @@
     });
   }
 
+  // ----- Consegne -----
+  // The stage comes from shipping mail; the tick is only ever set here, by hand. A parcel
+  // the courier calls delivered stays listed until it is ticked: that gap is the whole point.
+  var TRUCK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 6h12v10H2zM14 9h4l4 4v3h-8"></path><circle cx="6.5" cy="17.5" r="1.8"></circle><circle cx="17.5" cy="17.5" r="1.8"></circle></svg>';
+  var MAILI = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"></rect><path d="m22 7-10 5L2 7"></path></svg>';
+  var XICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"></path></svg>';
+  var PK_STAGE = {
+    returned:  ['Torna al mittente', 'critical'],
+    delivered: ['Risulta consegnato', 'good'],
+    pickup:    ['Da ritirare', 'warning'],
+    out:       ['In consegna oggi', 'good'],
+    shipped:   ['In viaggio', 'info'],
+    ordered:   ['Ordinato', 'info']
+  };
+  var pkData = null, pkDone = {}, pkShowDone = false, pkTries = 0, pkTimer = null;
+
+  function pkKeys(p){ return (p.keys && p.keys.length) ? p.keys : [p.key]; }
+  function pkState(p){
+    var ks = pkKeys(p);
+    for (var i = 0; i < ks.length; i++){ if (pkDone[ks[i]]) return pkDone[ks[i]].state; }
+    return '';
+  }
+  function romeToday(){ return new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Rome' }); }
+  function pkEta(p){
+    var day;
+    if (p.stage === 'pickup' && p.deadline){
+      day = new Date(p.deadline + 'T12:00:00').toLocaleDateString('it-IT', { weekday: 'short', day: 'numeric', month: 'short' });
+      return (p.late ? 'andava ritirato entro ' : 'da ritirare entro ') + day + (p.deadlineTime ? ' ore ' + p.deadlineTime : '');
+    }
+    if (!p.eta) return '';
+    var diff = Math.round((Date.parse(p.eta) - Date.parse(romeToday())) / 86400000);
+    day = new Date(p.eta + 'T12:00:00').toLocaleDateString('it-IT', { weekday: 'short', day: 'numeric', month: 'short' });
+    if (diff < 0) return 'era previsto ' + day;
+    if (diff === 0) return 'arriva oggi';
+    if (diff === 1) return 'arriva domani';
+    return 'arriva ' + day;
+  }
+
+  // One request at a time. The server keeps every tick in a single record, so two writes
+  // in flight together would each start from the old copy and the second would undo the first.
+  var pkQueue = Promise.resolve();
+  function pkQueued(run){
+    var p = pkQueue.then(run, run);
+    pkQueue = p.catch(function(){});
+    return p;
+  }
+  function pkPost(keys, state, title){
+    return pkQueued(function(){
+      return fetch('/api/parcels/check', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ keys: keys, state: state, title: title || '' })
+      }).then(function(r){ if (!r.ok) throw new Error('http'); return r.json(); })
+        .then(function(j){ if (j && j.done) pkDone = j.done; });
+    });
+  }
+
+  function pkRow(p){
+    var state = pkState(p);
+    var st = PK_STAGE[p.stage] || PK_STAGE.shipped;
+    var tickLabel = p.stage === 'returned' ? 'Segna come visto' : 'Segna come ricevuto';
+    var li = document.createElement('li');
+    li.className = 'row' + (state ? ' done' : '');
+    var more = '';
+    if (p.stage === 'ordered' && p.total) more = ' <small>' + p.count + ' di ' + p.total + ' ancora da spedire</small>';
+    else if (p.count > 1) more = ' <small>+ ' + (p.count - 1) + (p.count === 2 ? ' altro' : ' altri') + '</small>';
+    var badges = '';
+    if (state === 'dismissed') badges = '<span class="badge info">Nascosto</span>';
+    else if (state === 'received') badges = '<span class="badge good">Ricevuto</span>';
+    else {
+      if (p.problem) badges += '<span class="badge critical">Attenzione</span>';
+      else badges += '<span class="badge ' + st[1] + '">' + st[0] + '</span>';
+      if (p.late) badges += '<span class="badge warning">' + (p.stage === 'pickup' ? 'Scaduto' : 'In ritardo') + '</span>';
+    }
+    var eta = state ? '' : pkEta(p);
+    var notes = [];
+    if (p.problem && p.problemNote) notes.push(p.problemNote);
+    if (p.note) notes.push(p.note);
+    var others = (p.items && p.items.length > 1) ? 'Anche: ' + p.items.slice(1).join(' · ') : '';
+    var carrier = p.carrier && p.carrier !== p.merchant ? ' via ' + p.carrier : '';
+    li.innerHTML =
+      '<button class="pk-cb" type="button" title="' + (state ? 'Annulla' : tickLabel) + '" aria-label="' + (state ? 'Annulla' : tickLabel) + '" aria-pressed="' + (state ? 'true' : 'false') + '">' + CHECK + '</button>' +
+      '<div class="rowmain">' +
+        '<p class="subj">' + esc(p.title) + more + '</p>' +
+        '<div class="meta">' +
+          '<span class="chip">' + esc(p.merchant + carrier) + '</span>' +
+          badges +
+          (eta ? '<span>' + esc(eta) + '</span>' : '') +
+        '</div>' +
+        (others ? '<p class="snip">' + esc(others) + '</p>' : '') +
+        (notes.length ? '<p class="snip">' + esc(notes.join(' — ')) + '</p>' : '') +
+      '</div>' +
+      '<div class="rowend"><span class="rowtime">' + esc(rel(p.updated)) + '</span>' +
+        '<div class="rowact">' +
+          (p.trackUrl ? '<a class="actbtn" href="' + esc(p.trackUrl) + '" target="_blank" rel="noopener" title="Traccia il pacco" aria-label="Traccia il pacco">' + TRUCK + '</a>' : '') +
+          (p.threadId ? '<a class="actbtn" href="https://mail.google.com/mail/u/0/#all/' + encodeURIComponent(p.threadId) + '" target="_blank" rel="noopener" title="Apri la mail" aria-label="Apri la mail">' + MAILI + '</a>' : '') +
+          (state ? '' : '<button class="actbtn" type="button" data-act="hide" title="Nascondi: non è un pacco da aspettare" aria-label="Nascondi">' + XICON + '</button>') +
+        '</div>' +
+      '</div>';
+
+    var cb = li.querySelector('.pk-cb');
+    cb.addEventListener('click', function(){
+      var want = li.classList.contains('done') ? '' : 'received';
+      cb.disabled = true;
+      pkPost(pkKeys(p), want, p.title)
+        .then(function(){
+          li.classList.toggle('done', !!want);
+          cb.setAttribute('aria-pressed', want ? 'true' : 'false');
+          cb.title = want ? 'Annulla' : tickLabel;
+          pkCount();
+          toast(want ? (p.stage === 'returned' ? 'Segnato come visto' : 'Segnato come ricevuto') : 'Rimesso tra i pacchi aperti');
+        })
+        .catch(function(){ toast('Non riuscito. Riprova.', true); })
+        .finally(function(){ cb.disabled = false; });
+    });
+    var hide = li.querySelector('[data-act="hide"]');
+    if (hide) hide.addEventListener('click', function(){
+      hide.disabled = true;
+      pkPost(pkKeys(p), 'dismissed', p.title)
+        .then(function(){
+          li.style.transition = 'opacity .24s'; li.style.opacity = '0';
+          setTimeout(renderParcels, 240);
+          toast('Nascosto: lo ritrovi in fondo al riquadro');
+        })
+        .catch(function(){ hide.disabled = false; toast('Non riuscito. Riprova.', true); });
+    });
+    return li;
+  }
+
+  function pkSplit(){
+    var out = { wait: [], coming: [], closed: [] };
+    ((pkData && pkData.parcels) || []).forEach(function(p){
+      if (pkState(p)) out.closed.push(p);
+      else if (p.stage === 'delivered' || p.stage === 'returned') out.wait.push(p);
+      else out.coming.push(p);
+    });
+    return out;
+  }
+
+  function pkCount(){
+    var g = pkSplit(), bits = [];
+    if (g.wait.length) bits.push(g.wait.length + ' da confermare');
+    if (g.coming.length) bits.push(g.coming.length + ' in arrivo');
+    var tag = document.getElementById('pkMeta');
+    tag.textContent = bits.length ? bits.join(' · ') : 'tutto a posto';
+    tag.className = 'tag' + (g.wait.length ? ' sample' : ' real');
+  }
+
+  function pkSection(host, title, hint, list, emptyText, bulk){
+    var sec = document.createElement('div'); sec.className = 'pk-sec';
+    var h = document.createElement('div'); h.className = 'pk-h';
+    h.innerHTML = '<span>' + esc(title) + (hint ? '<small>' + esc(hint) + '</small>' : '') + '</span>';
+    if (bulk && list.length > 2){
+      var b = document.createElement('button'); b.type = 'button'; b.textContent = 'Li ho tutti';
+      b.title = 'Segna tutti come ricevuti';
+      b.addEventListener('click', function(){
+        var keys = [];
+        list.forEach(function(p){ keys = keys.concat(pkKeys(p)); });
+        b.disabled = true;
+        pkPost(keys, 'received', '')
+          .then(function(){ renderParcels(); toast(list.length + ' pacchi segnati come ricevuti'); })
+          .catch(function(){ b.disabled = false; toast('Non riuscito. Riprova.', true); });
+      });
+      h.appendChild(b);
+    }
+    sec.appendChild(h);
+    if (!list.length){
+      var e = document.createElement('div'); e.className = 'pk-none'; e.textContent = emptyText;
+      sec.appendChild(e);
+    } else {
+      var ul = document.createElement('ul'); ul.className = 'rows';
+      list.forEach(function(p){ ul.appendChild(pkRow(p)); });
+      sec.appendChild(ul);
+    }
+    host.appendChild(sec);
+    return sec;
+  }
+
+  function renderParcels(){
+    var body = document.getElementById('pkBody');
+    if (!pkData) return;
+    var g = pkSplit();
+    body.innerHTML = '';
+    pkSection(body, 'Da confermare', 'spunta quando hai il pacco in mano', g.wait, 'Nessun pacco da confermare.', true);
+    pkSection(body, 'In arrivo', '', g.coming, 'Nessun pacco in viaggio.', false);
+    if (pkData.pending > 0){
+      var w = document.createElement('div'); w.className = 'pk-none pk-wide';
+      w.textContent = 'Sto ancora leggendo ' + pkData.pending + ' mail di spedizione…';
+      body.appendChild(w);
+    }
+    if (g.closed.length){
+      if (pkShowDone){
+        g.closed.sort(function(a, b){ return String(b.updated).localeCompare(String(a.updated)); });
+        pkSection(body, 'Già confermati o nascosti', 'togli la spunta per riaprirli', g.closed, '', false).classList.add('pk-wide');
+      }
+      var foot = document.createElement('div'); foot.className = 'pk-foot';
+      var sp = document.createElement('span');
+      sp.textContent = g.closed.length + (g.closed.length === 1 ? ' pacco già confermato o nascosto' : ' pacchi già confermati o nascosti') + ' negli ultimi 30 giorni';
+      var tb = document.createElement('button'); tb.type = 'button'; tb.textContent = pkShowDone ? 'Nascondi' : 'Mostra';
+      tb.addEventListener('click', function(){ pkShowDone = !pkShowDone; renderParcels(); });
+      foot.appendChild(sp); foot.appendChild(tb);
+      body.appendChild(foot);
+    }
+    pkCount();
+  }
+
+  function loadParcels(fresh){
+    // Queued behind any tick still being saved, or its answer could arrive with the old state.
+    return pkQueued(function(){ return fetch('/api/parcels' + (fresh ? '?fresh=1' : '')); })
+      .then(function(r){ if (!r.ok) throw new Error('http ' + r.status); return r.json(); })
+      .then(function(j){
+        pkData = j; pkDone = j.done || {};
+        renderParcels();
+        // A first scan reads the mailbox in a few passes: keep asking until it is complete.
+        if (pkTimer) clearTimeout(pkTimer);
+        if (j.pending > 0 && pkTries < 10){ pkTries++; pkTimer = setTimeout(function(){ loadParcels(false); }, 1500); }
+        else pkTries = 0;
+      })
+      .catch(function(){
+        if (!pkData){
+          document.getElementById('pkBody').innerHTML = '<div class="pk-none pk-wide">Non riesco a leggere le mail di spedizione. Riprova con Aggiorna.</div>';
+          document.getElementById('pkMeta').textContent = 'non disponibile';
+        }
+      });
+  }
+
   function srcTag(el, ok, realText){
     if (ok){ el.className = 'tag real'; el.textContent = realText; }
     else { el.className = 'tag sample'; el.textContent = 'Non disponibile'; }
@@ -881,12 +1144,13 @@
       .finally(function(){ setLoading(false); });
   }
 
-  refreshBtn.addEventListener('click', function(){ load(true); });
+  refreshBtn.addEventListener('click', function(){ load(true); loadParcels(true); });
 
   // initial load (cached snapshot, fast)
   load(false);
+  loadParcels(false);
   // light auto-refresh of the cached view every 5 min (no upstream call)
-  setInterval(function(){ if (!refreshBtn.disabled) load(false); }, 5*60*1000);
+  setInterval(function(){ if (!refreshBtn.disabled) { load(false); loadParcels(false); } }, 5*60*1000);
 })();
 </script>
 </body>

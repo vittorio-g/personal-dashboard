@@ -209,3 +209,58 @@ risk class from one that can leave a draft for a human to read and send.
 Then verify what Gmail actually stored: fetch the draft back raw and compare each
 attachment's hash with the file you meant to attach. The connector's draft view does not
 list attachments at all, so "created" tells you nothing about them.
+
+## A parcel is not a shipment id
+
+Grouping shipping mail by the id in the tracking link looks obviously right and is wrong.
+When Amazon packs two orders in one box, the "out for delivery" mail links one order's
+shipment and the "delivered" mail links the other's: same box, two ids, and the parcel shows
+up twice — once delivered, once forever "on its way". Group on what is *inside* instead: two
+mails are the same parcel if they share a shipment id **or** an item, a few days apart. The
+plain-text part of the mail lists the items cleanly (`* name` / `Quantità: n`); the subject
+only carries a truncated first one.
+
+Keep every id seen as an alias of the parcel, and store the user's tick under all of them.
+Otherwise a late mail that regroups the parcel under a different id brings a confirmed
+parcel back from the dead.
+
+## Marketplaces split one parcel across two senders
+
+Vinted forwards the carrier's mail (it has the tracking number and the pickup PIN, not the
+article) and, in the same minute, sends its own update (it has the article, not the
+tracking). Nothing in the text ties the two together except the minute they were sent in —
+so that is the join: same marketplace, timestamps within three minutes.
+
+Read a stage only from mail the shop wrote about a parcel. Chat notifications between users
+contain sentences like "è stato consegnato ieri?" and will be parsed as a delivery.
+
+## "Returned to sender" outranks everything
+
+A parcel left at a pickup point produces "ready", a reminder, and then — if nobody goes — a
+mail whose subject is a mild "you did not collect it in time". If the parser has no stage for
+that, the parcel stays "ready for pickup" for ever, which is the exact failure a parcel
+tracker exists to prevent. Give it its own terminal stage, rank it above "delivered", and
+sort it to the top.
+
+## Cache what you read from a mail, including "this is not a parcel"
+
+A mail never changes, so everything derived from one can be cached by message id for good:
+the event read from the headers, the details read from the body, and the verdict that it is
+not about a parcel at all. A scan is then one search plus fetches only for ids never seen —
+a single Gmail request when nothing is new. Version the cache: any change to the parsers
+must invalidate it, or old mail keeps its old reading.
+
+A batch request is one HTTP call but each mail in it still counts against the per-second
+quota. Cap the mails read per pass, report how many are `pending`, and let the page ask
+again until it reaches zero.
+
+## One record, many ticks: queue the writes
+
+All the ticks live in one KV value, so two writes in flight together both start from the old
+copy and the second silently undoes the first. From one page that is solved without touching
+the server: send one request at a time (chain them on a promise), and queue the reads behind
+them too, or a refresh that left before a tick can come back after it with the old state.
+
+Corollary for whoever tests it: never click-test against the live list while its owner may be
+using it. Exercise the endpoint with made-up keys; a test that unticks "the first row" will
+untick whatever the owner ticked a second earlier.

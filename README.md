@@ -20,6 +20,11 @@ your own Google/Meta credentials. Free tier is enough.
 - **Already answered, already gone**: a mail thread whose newest message is one
   of yours disappears from "da gestire" (and takes its advice with it); a
   WhatsApp chat showing your own sent ticks never becomes a task.
+- **Consegne**: parcels reconstructed from shipping mail (Amazon, Vinted/InPost,
+  couriers, print shops) with no LLM involved. What is on its way, with the
+  expected day; what the courier *says* it delivered, which stays listed until
+  **you** tick it as actually in hand; and what went back to the sender because
+  nobody collected it. The tick is yours alone — mail can never set it.
 - **WhatsApp — recap**: per-group summaries that stay until you mark them read,
   plus unread 1:1s surfaced as preview-only alerts.
 - Live clock, light/dark theme, an **Aggiorna** button and a twice-daily cron.
@@ -80,6 +85,8 @@ Full walkthrough:
 | `POST /api/mail/action` | mark read / archive / trash a thread |
 | `POST /api/mail/pin` | keep a thread at the top of the list |
 | `POST /api/mail/draft` | store a raw RFC 822 message as a Gmail **draft** (never sends) · `?id=` rewrites an existing draft |
+| `GET /api/parcels` | parcels read from shipping mail (cached; `?fresh=1` rescans; `pending` > 0 means call again) |
+| `POST /api/parcels/check` | `{keys, state}` — your own tick: `received`, `dismissed`, or `""` to undo |
 | `GET,POST /api/todos` | `{user, suggested}` lists · `POST {bucket}` writes one half |
 | `GET /api/consigli` | which bucket was written last, and when |
 | `GET,POST /api/whatsapp` | the recap payload |

@@ -2,6 +2,7 @@
 // Gmail + Google Calendar (read-only OAuth), cached in KV and refreshed on cron.
 import DASHBOARD_HTML from "../public/dashboard.html";
 import { getAccessToken, gmailSnapshot, calendarSnapshot, modifyMessage, modifyThread, trashMessage, createEvent, createDraftRaw } from "./google.js";
+import { parcelsScan } from "./parcels.js";
 
 const KV_KEY = "snapshot";
 const WA_KEY = "whatsapp";
@@ -14,6 +15,12 @@ const TODO_SUG_MAIL_KEY = "todos_suggested_mail"; // bucket "mail"
 const TODO_SUG_SWEEP_KEY = "todos_suggested_sweep"; // bucket "sweep" - manual deep passes
 const CONSIGLI_STATUS_KEY = "consigli_status";
 const MAIL_PIN_KEY = "mail_pinned";
+// Parcels: the reconstructed list, the user's own ticks, and the parsed mail bodies (so a
+// mail is downloaded in full only the first time it is seen).
+const PARCELS_KEY = "parcels";
+const PARCELS_DONE_KEY = "parcels_done";
+const PARCELS_CACHE_KEY = "parcels_msgcache";
+const PARCELS_MAX_AGE = 90 * 60 * 1000;
 const WA_DISMISS_KEY = "wa_dismissed";
 const WA_GROUPS_READ_KEY = "wa_groups_read";
 const WA_INBOX_KEY = "wa_inbox";
@@ -596,6 +603,33 @@ async function refreshAndStore(env) {
   return snap;
 }
 
+// ---------- Parcels ----------
+
+async function kvJSON(env, key, fallback) {
+  try {
+    const raw = await env.DASH_KV.get(key);
+    return raw ? JSON.parse(raw) : fallback;
+  } catch (_) { return fallback; }
+}
+
+/** Shipping mail is read from the first account that has a token (everything forwards there). */
+async function refreshParcels(env) {
+  const acc = getAccounts(env).find((a) => env["GOOGLE_RT_" + String(a.id).toUpperCase()]);
+  if (!acc) throw new Error("no-token");
+  const token = await tokenForAccount(env, acc.id);
+  const cache = await kvJSON(env, PARCELS_CACHE_KEY, null);
+  const res = await parcelsScan(token, cache);
+  // The parsed bodies are saved first: if anything after this fails, the next run starts
+  // from what was already read instead of downloading it all again.
+  await env.DASH_KV.put(PARCELS_CACHE_KEY, JSON.stringify(res.cache));
+  const snap = {
+    generatedAt: Date.now(), parcels: res.parcels,
+    scanned: res.scanned, matched: res.matched, pending: res.pending,
+  };
+  await env.DASH_KV.put(PARCELS_KEY, JSON.stringify(snap));
+  return snap;
+}
+
 const UNAUTH_PAGE = `<!DOCTYPE html><html lang="it"><head><meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1"><title>Accesso richiesto</title>
 <style>body{font-family:system-ui,sans-serif;background:#0d0d0d;color:#eee;display:grid;place-items:center;height:100vh;margin:0;text-align:center;padding:24px}
@@ -749,6 +783,52 @@ export default {
         }
       } catch (_) {}
       return json({ ok: true, pinned: list });
+    }
+
+    // Parcels on their way, reconstructed from shipping mail. Served from cache; recomputed
+    // on ?fresh=1, when the cache is older than PARCELS_MAX_AGE, or while some mails still
+    // have to be read in full (`pending`).
+    if (path === "/api/parcels" && request.method === "GET") {
+      if (!isAuthed(request, env)) return json({ error: "unauthorized" }, 401);
+      let snap = await kvJSON(env, PARCELS_KEY, null);
+      const stale = !snap || Date.now() - (snap.generatedAt || 0) > PARCELS_MAX_AGE;
+      let error;
+      if (url.searchParams.get("fresh") || stale || snap.pending) {
+        try {
+          snap = await refreshParcels(env);
+        } catch (e) {
+          error = String((e && e.message) || e).slice(0, 200);
+          if (!snap) return json({ error: "parcels_failed", detail: error }, 500);
+        }
+      }
+      const done = await kvJSON(env, PARCELS_DONE_KEY, {});
+      return json(Object.assign({}, snap, { done }, error ? { error } : {}));
+    }
+
+    // The user's own tick. "received" = the parcel is really in hand; "dismissed" = this is
+    // not a parcel. An empty state undoes either. Mail never sets this: a courier saying
+    // "delivered" is exactly the claim the tick is there to check.
+    // A parcel can go by several keys (one per shipment id seen in its mails): the tick is
+    // stored under all of them, so it still holds when a later mail regroups the parcel.
+    if (path === "/api/parcels/check" && request.method === "POST") {
+      if (!isAuthed(request, env)) return json({ error: "unauthorized" }, 401);
+      let body;
+      try { body = await request.json(); } catch (_) { return json({ error: "bad_request" }, 400); }
+      const raw = body && Array.isArray(body.keys) ? body.keys : [body && body.key];
+      const keys = [...new Set(raw.map((k) => String(k || "").slice(0, 200)).filter(Boolean))].slice(0, 80);
+      const state = body && body.state;
+      if (!keys.length || !["received", "dismissed", ""].includes(state)) return json({ error: "bad_request" }, 400);
+      const done = await kvJSON(env, PARCELS_DONE_KEY, {});
+      const at = Date.now();
+      const title = String(body.title || "").slice(0, 120);
+      for (const key of keys) {
+        if (state) done[key] = { state, at, title };
+        else delete done[key];
+      }
+      const limit = at - 120 * 86400000;
+      for (const k of Object.keys(done)) if ((done[k].at || 0) < limit) delete done[k];
+      await env.DASH_KV.put(PARCELS_DONE_KEY, JSON.stringify(done));
+      return json({ ok: true, done });
     }
 
     if (path === "/api/whatsapp") {
