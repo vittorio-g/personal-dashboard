@@ -264,3 +264,63 @@ them too, or a refresh that left before a tick can come back after it with the o
 Corollary for whoever tests it: never click-test against the live list while its owner may be
 using it. Exercise the endpoint with made-up keys; a test that unticks "the first row" will
 untick whatever the owner ticked a second earlier.
+
+## A scheduled run in "don't ask" mode fails without telling anyone
+
+With `permissions.defaultMode: "dontAsk"` an unattended session never hangs on a prompt:
+whatever is not pre-approved is simply refused, and the session carries on. The morning recap
+read every group (marking them read), then could not write its payload file, could not POST
+it from the shell and could not close its own tab. Some days it improvised another way to
+post; on others nothing arrived. Each run said so in its final report; the only visible
+symptoms were a dashboard panel stuck on an old date and one more tab-group chip in the
+bookmarks bar per run.
+
+What is actually allowed is narrower than the allow-list suggests, so test it instead of
+reasoning about it. A throwaway scheduled task that tries each call once and reports
+"allowed / refused" takes a minute. Findings on this setup:
+
+- an MCP tool needs its own entry (`mcp__claude-in-chrome__tabs_close_mcp`); having the
+  sibling tools of the same server is not enough;
+- `Bash(curl *)` covers a **single-line** `curl …`, POST included; the same command followed
+  by a heredoc, or prefixed by `cd … &&`, is refused;
+- file writes need an `Edit(<path>)` rule per file, project-relative (`Edit(/dir/.payload.json)`).
+  `Write(<path>)` rules are not consulted, and a Windows path with backslashes never matches;
+- nothing under `~/.claude` can be written by such a run, whatever the rule says. That is a
+  feature: the routine cannot rewrite its own skill, or the lists that restrain it.
+
+Make the run report failure in its first line, and look at the reports.
+
+## A tab group left open becomes a bookmark-bar chip
+
+The browser extension gives each session its own tab group, named after the session. When
+the session closes its last tab the group disappears. When it does not — closing was refused,
+or the user closed the window instead — Chrome keeps the group as a *saved* tab group: a
+chip in the bookmarks bar, synced to every other Chrome on the account. One per run.
+
+So the cleanup has to be verifiable: close every tab the group holds, then ask for the tab
+context again and require the answer "no tab group exists". Saved chips already there can
+only be deleted from Chrome's own interface (right-click the chip), which automation cannot
+drive.
+
+## Choosing a browser is not a per-session choice
+
+With two Chrome profiles or machines connected to the same account, selecting one from a
+session moves the others too: a routine running at that moment loses its tab ("not in this
+session's group"), recreates a group in the other browser and leaves the first tab behind —
+with a chat still open in it, quietly marking new messages as read. Do not switch browser
+while a scheduled run is in progress, and keep only one browser connected if routines use it.
+
+## Ask the page's own store, not the screen
+
+Which chats are groups was read from the "Gruppi" filter of the chat list: a toggle that is a
+tab in one layout, a button that ignores synthetic clicks in another. WhatsApp Web exposes its
+module system (`window.require`), and the chat collection already knows: a group is a chat
+whose id ends in `@g.us`. The same store holds each group's members, which is the only way
+to apply a rule like "never open a group these two people are in" *before* opening it —
+the chat list shows no members, and opening the chat is the very thing to avoid.
+
+Two cautions. Member lists load lazily: seconds after the page opens most groups have none,
+a minute later all of them do, so ask for the missing ones (the collection's own `find`) and
+treat "cannot tell" as "do not open". And put the guard where the click is prepared, not only
+in the instructions: the helper that returns click coordinates refuses to return them for a
+1:1 chat or a reserved group, so a run that forgets the rule has nothing to click.

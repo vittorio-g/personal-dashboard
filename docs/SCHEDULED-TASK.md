@@ -119,27 +119,47 @@ HARD RULE: only ever open GROUP chats. Never open a 1:1 - opening marks it read 
 read receipts the user cannot undo. Report 1:1s from the list preview instead, in
 leftUnread.
 
-TEMP FILES: always write payloads to these fixed paths, never a per-session temp folder:
-  ./.wa-payload.json          (for /api/whatsapp)
-  ./.suggested-payload.json   (for /api/todos)
+SECOND HARD RULE - RESERVED GROUPS: some groups the user reads personally and they must
+never be opened (opening one shows everybody in it that the messages were read). They are
+defined in helpers.js: window.NEVER (by name) and window.NEVER_WITH (by members). Use
+`await window.triage()`: `open` may be opened, `skipped` may NOT, `oneToOne` goes to
+leftUnread only. A reserved group is not opened, not summarised, not put in urgent, groups
+or leftUnread. If the reason is "members cannot be verified", skip it too and say so.
+window.coordsFor() refuses coordinates for a 1:1 or a reserved group: if it answers
+"NON APRIRE", do not look for another way to click. Never edit the two lists.
+
+PERMISSIONS: this session runs in "don't ask" mode - only pre-approved calls go through.
+- you may write ONLY these two files, with the Write tool (they exist: Read, then Write):
+    ./.wa-payload.json          (for /api/whatsapp)
+    ./.suggested-payload.json   (for /api/todos)
+  Anything else is refused, the skill folder included: contacts.json and helpers.js are
+  read-only for an automatic run. List new chats in the report instead.
+- POST with ONE single-line Bash command that starts with curl:
+    curl -s -X POST "https://<WORKER>/api/whatsapp?t=<TOKEN>" -H "content-type: application/json" --data-binary "@<project>/.wa-payload.json"
+  No cd, no &&, no heredoc, no PowerShell, no cat: they are refused.
+- if Write or curl is refused anyway, fall back to the browser: take YOUR tab to
+  https://<WORKER>/robots.txt and POST with fetch from javascript_tool (same origin).
+- if the recap does not reach the dashboard, say so in the FIRST line of the report.
 
 === PART 1 - the recap ===
 Use the whatsapp-recap skill (skills/whatsapp-recap/):
-1. FIRST call tabs_context and note which tabs were already open - the cleanup at the end
-   must close only what this run created. Then open web.whatsapp.com. If a login QR
+1. FIRST call tabs_context_mcp with createIfEmpty:true, ONCE: that is your tab group, and
+   one is enough for the whole run. Open web.whatsapp.com in that tab. If a login QR
    appears, STOP and report it.
 2. Inject helpers.js.
 3. Take one screenshot and call window.setScale(<screenshot width>) - the screenshot/CSS
    pixel ratio changes with the window size; never hardcode it.
-4. await window.groupNames() - clicks the "Gruppi" filter and caches the authoritative
-   list of groups. THIS is what decides which chats may be opened.
-5. Click the "Da leggere" tab, list the unread chats and split them with
-   window.isOpenable(): groups -> open, everything else -> leftUnread.
+4. await window.groupNames() - caches the authoritative list of groups, read from
+   WhatsApp's in-page store (nothing is clicked). Check window.GROUPS_SRC === 'store'.
+   THIS is what decides which chats may be opened.
+5. Click the "Da leggere" tab and call `await window.triage()`: `open` -> groups to open,
+   `skipped` -> reserved groups NOT to open (keep only their names for the report),
+   `oneToOne` -> leftUnread. Call it again whenever the list changes.
 6. ALREADY ANSWERED = ALREADY HANDLED. window.rowPreviews() returns mine:true when the
    row shows the sent ticks, i.e. the chat's last message is the user's. Those chats go
    in neither urgent nor leftUnread. If you send them anyway, set mine:true on the entry
    (the Worker drops them server-side too), or list them in the payload's replied[].
-7. For each unread group, one at a time: window.coordsFor(name) -> CHECK that
+7. For each group in `open` (and only those), one at a time: window.coordsFor(name) -> CHECK that
    sottoIlCursore is the expected name (the list reorders live) -> a REAL click at {x,y}
    -> window.after(), and verify `atteso` before reading the messages.
 8. Press Escape when finished (an open chat keeps marking new messages as read).
@@ -149,8 +169,8 @@ Use the whatsapp-recap skill (skills/whatsapp-recap/):
    leftUnread[{chat,age,text,mine}], groups[{chat,cat,summary}], byCategory, replied[].
    groups[] = a 2-3 line recap of EVERY group opened; these stay on the dashboard until
    the user marks them read, so write them to stand on their own.
-10. Update contacts.json (new chats + category, lastRun). Never reintroduce a list of
-   1:1 chats to open.
+10. Do NOT try to update contacts.json: it is read-only for an automatic run. Put the new
+   chats, and the category you gave them, in the report.
 
 === PART 2 - Consigli, bucket "wa" only ===
 1. From the surviving `urgent` entries derive concrete actions: what to do, for whom,
@@ -164,15 +184,24 @@ Use the whatsapp-recap skill (skills/whatsapp-recap/):
 4. Nothing urgent? Send {"bucket":"wa","suggested":[]} - emptying your half is correct.
 
 === PART 3 - clean up (always, even if the run broke halfway) ===
-Close with tabs_close_mcp every tab this run opened, and only those, comparing against the
-list noted in step 1: never close a tab the user already had open - they may be working in
-it. Chrome removes the tab group by itself once its last tab is gone, so there is nothing
-else to clear. Closing the tab does NOT unlink WhatsApp Web: the phone pairing survives and
-the next run loads straight in. Do this even if the recap failed partway - don't leave
-orphan tabs behind.
+The tab group must be DELETED at the end: one left behind shows up as one more chip in the
+user's bookmarks bar, every single morning.
+1. Call tabs_context_mcp (WITHOUT createIfEmpty) and close every tab it lists with
+   tabs_close_mcp: the group is yours, nothing of the user's is in it.
+2. Call tabs_context_mcp again: it must answer that no tab group exists. That answer is
+   the proof (Chrome deletes a group when its last tab closes).
+3. If a close is refused or the group is still there, write "TAB GROUP NOT DELETED" in the
+   report with the ids left behind. Never claim a cleanup you did not verify.
+If a tool says mid-run that your tab is no longer in your group (the browser reconnected),
+create a new group, carry on, and report the old tab as left open.
+Closing the tab does NOT unlink WhatsApp Web: the phone pairing survives and the next run
+loads straight in. Do this even if the recap failed partway.
 
 Constraints: send no WhatsApp messages or e-mails, mark nothing as read through the API,
-never open a 1:1 chat, never leave a WhatsApp group and never delete a chat.
+never open a 1:1 chat, never open a reserved group, never leave a WhatsApp group and never
+delete a chat. End with a short report: did the recap reach the dashboard, the urgent
+items, the reserved groups left unread (names only), how many tabs you closed and whether
+the tab group is gone.
 ```
 
 ## Why not just call an LLM from the Worker
