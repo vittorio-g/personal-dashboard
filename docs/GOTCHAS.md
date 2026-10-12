@@ -324,3 +324,30 @@ a minute later all of them do, so ask for the missing ones (the collection's own
 treat "cannot tell" as "do not open". And put the guard where the click is prepared, not only
 in the instructions: the helper that returns click coordinates refuses to return them for a
 1:1 chat or a reserved group, so a run that forgets the rule has nothing to click.
+
+## "Close your tabs when you are done" has to be enforced, not asked
+
+Every session that drives Chrome gets its own tab group, and every prompt already says to
+close it. Sessions still end with the group open — the run broke, the instruction was
+forgotten, the close was refused — and each one leaves a saved chip behind.
+
+An instruction cannot guarantee it; a `Stop` hook can. `hooks/close-chrome-tab-group.js` reads
+the session transcript, finds the last thing the extension's own tools said about the tab
+group, and if the group still has tabs it blocks the stop once with the instruction to close
+them. The session closes its tabs and stops normally. Install it for every session in the
+user-level settings:
+
+```json
+{
+  "permissions": { "allow": ["mcp__claude-in-chrome__tabs_context_mcp", "mcp__claude-in-chrome__tabs_close_mcp"] },
+  "hooks": { "Stop": [ { "hooks": [ {
+    "type": "command", "command": "node", "args": ["<HOME>/.claude/hooks/close-chrome-tab-group.js"], "timeout": 15
+  } ] } ] }
+}
+```
+
+Details that matter: honour `stop_hook_active`, or the hook blocks for ever; allow the stop on
+any error, because a cleanup helper must never trap a session; pre-approve the two tools, or a
+"don't ask" session is told to close a tab it is not allowed to close; and count a marker only
+when it sits in the result of one of the extension's tools — the same words appear in code and
+prose. Prove it with a throwaway run that opens a tab, says "done" and nothing else.

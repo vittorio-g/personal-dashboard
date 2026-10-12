@@ -113,12 +113,18 @@ window.DONE = new Set();
 //   NEVER      : by name (case/accents ignored, substring match)
 //   NEVER_WITH : by who is in the group. Each entry is a set of saved-contact names;
 //                a group is skipped when ALL the names of an entry are among its members.
+//   NEVER_EXCEPT: by name, groups to read anyway even if NEVER_WITH would reserve them.
 // ---------------------------------------------------------------------------
 window.NEVER = [
   // 'name of a group you read yourself',
 ];
 window.NEVER_WITH = [
   // ['Alice', 'Bob'],   // every group that has BOTH of these saved contacts in it
+];
+// Groups to read anyway, although NEVER_WITH would reserve them (by name, same matching
+// as NEVER). An entry here never overrides NEVER.
+window.NEVER_EXCEPT = [
+  // 'a group with Alice and Bob that you still want summarised',
 ];
 
 window.__norm = s => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/\s+/g, ' ').trim();
@@ -162,6 +168,7 @@ window.membersOf = name => {
 window.neverReason = name => {
   const low = window.__norm(name);
   if (window.NEVER.some(s => low.includes(window.__norm(s)))) return 'per nome';
+  if ((window.NEVER_EXCEPT || []).some(s => low.includes(window.__norm(s)))) return '';
   if (!window.NEVER_WITH.length) return '';
   const mem = window.membersOf(name);
   if (!mem) return 'partecipanti non verificabili';
